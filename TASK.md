@@ -34,7 +34,7 @@ spectral-segmentation-v1/
 
 ## 👤 Prajwal (Backend Engine)
 
-* [ ] **Environment:** Setup Git repository and standardized directory structure.
+* [x] **Environment:** Setup Git repository and standardized directory structure.
 * [ ] **Weights:** Implement the Gaussian Kernel logic for pixel similarity ($w_{ij}$).
 * [ ] **Laplacian:** Construct the Degree Matrix ($D$) and Laplacian ($L$) in `src/engine.py`.
 * [ ] **Solver:** Integrate iterative Eigen-solver (Lanczos/ARPACK) in `src/solver.py`.

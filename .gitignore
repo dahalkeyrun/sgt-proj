@@ -1,0 +1,41 @@
+# md files
+.md
+*.md
+
+# virtual environment
+.env
+venv/
+env/
+ENV/
+.python-version
+
+#python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+#environment variables / secrets
+.env
+.env.*
+!.env.example
+.venv/
+# build /distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+#testing /coverage
+.pytest_cache/
+.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+#testing
+.pytest_cache/

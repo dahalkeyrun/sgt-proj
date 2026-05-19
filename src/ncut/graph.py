@@ -47,7 +47,7 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
                         continue
 
                     pixel_j_intensity = image[y2, x2]
-                    dist_i_sq = calculate_intensity_distance_sq(pixel_i_intensity, pixel_i_intensity)
+                    dist_i_sq = calculate_intensity_distance_sq(pixel_i_intensity, pixel_j_intensity)
 
                     weight = math.exp(-dist_i_sq / two_sigma_i_sq) * math.exp(-dist_x_sq / two_sigma_x_sq)
 

@@ -19,6 +19,7 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
     radius_sq = radius ** 2
 
 
+
     values = []
     col_indices = []
     row_pointers =[0]

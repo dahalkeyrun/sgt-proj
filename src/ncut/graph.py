@@ -1,5 +1,19 @@
 import math
 import numpy as np
+from scipy.sparse import csr_matrix
+
+def validate_graph_parameters(image, sigma_i, sigma_x, radius):
+    if image.ndim not in (2, 3):
+        raise ValueError("Image must be either 2D grayscale or 3D RGB.")
+    
+    if sigma_i <= 0:
+        raise ValueError("sigma_i must be positive.")
+    
+    if sigma_x <= 0:
+        raise ValueError("sigma_x must be positive.")
+    
+    if radius <= 0:
+        raise ValueError("radius must be positive.")
 
 def calculate_spatial_distance_sq(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
@@ -9,6 +23,8 @@ def calculate_intensity_distance_sq(p1, p2):
     return np.sum(diff ** 2)
 
 def build_graph_structures(image, sigma_i, sigma_x, radius):
+
+    validate_graph_parameters(image, sigma_i, sigma_x, radius)
 
     height, width = image.shape[:2]
     num_pixels = height * width
@@ -43,7 +59,13 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
 
                     j = y2 * width + x2
 
+                    if i == j:
+                        continue
+
                     dist_x_sq = calculate_spatial_distance_sq(x1, y1, x2, y2)
+
+                    # connect pixels only when distance < radius
+                    # pixels exactly at distance == radius are intentionally excluded.
                     if dist_x_sq >= radius_sq:
                         continue
 
@@ -66,3 +88,15 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
             np.array(row_pointers, dtype=np.int32),
             degree_vector
             )
+
+
+def build_weight_matrix(image, sigma_i, sigma_x, radius):
+    values, col_indices, row_pointers, degree_vector = build_graph_structures(image, sigma_i, sigma_x, radius)
+
+    num_pixels = len(degree_vector)
+
+    weight_matrix = csr_matrix((values, col_indices, row_pointers),
+                               shape=(num_pixels, num_pixels),
+                               dtype=np.float64)
+    
+    return weight_matrix, degree_vector

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectral Graph Segmentation</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        .checkerboard {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="10" height="10" fill="%23e5e5e0"/><rect x="10" y="10" width="10" height="10" fill="%23e5e5e0"/></svg>');
+        }
+    </style>
+</head>
+<body class="h-screen bg-[#FDFDFB] text-[#121212] font-serif flex flex-col overflow-hidden">
+    
+    <!-- Header Navigation -->
+    <header class="h-16 border-b border-[#E5E5E0] flex items-center justify-between px-8 bg-white shrink-0">
+        <div class="flex items-center gap-6">
+            <div class="w-8 h-8 bg-[#121212] flex items-center justify-center text-white font-sans font-bold text-xs shadow-sm">Ω</div>
+            <div class="flex flex-col">
+                <h1 class="font-sans text-[11px] uppercase tracking-[0.2em] font-bold text-[#121212]">Spectral Graph Theory</h1>
+            </div>
+        </div>
+        <div class="hidden sm:flex items-center gap-4 text-sm text-[#666] font-medium font-sans text-[11px] uppercase tracking-widest">
+            <span>COMP 323</span>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-8 lg:p-12">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12">
+            
+            <!-- Left Column: Input and Controls -->
+            <div class="lg:col-span-4 space-y-8">
+                <section>
+                    <h2 class="font-sans text-[10px] uppercase tracking-widest text-[#999] mb-4">Image Source</h2>
+                    
+                    <label id="upload-area" class="flex flex-col items-center justify-center w-full h-48 border border-[#E5E5E0] border-dashed bg-[#F9F9F7] hover:bg-[#F3F3F1] transition-colors cursor-pointer block">
+                        <div class="flex flex-col items-center justify-center text-center p-6">
+                            <span class="font-sans text-[11px] uppercase tracking-widest text-[#121212] font-bold mb-2">Select Image</span>
+                            <p class="text-[12px] text-[#666] italic">Click or drag and drop<br/>PNG, JPG or GIF</p>
+                        </div>
+                        <input type="file" id="image-input" class="hidden" accept="image/*" />
+                    </label>
+
+                    <div id="image-preview" class="hidden relative group overflow-hidden border border-[#E5E5E0]">
+                        <img id="source-image" src="" alt="source" class="w-full object-contain max-h-64 bg-[#F9F9F7]" />
+                        <label class="absolute inset-0 bg-[#121212]/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                            <span class="text-white font-sans text-[11px] uppercase tracking-widest font-bold">Change Image</span>
+                            <input type="file" id="image-change-input" class="hidden" accept="image/*" />
+                        </label>
+                    </div>
+                </section>
+
+                <section>
+                    <h2 class="font-sans text-[10px] uppercase tracking-widest text-[#999] mb-4">Hyperparameters</h2>
+                    
+                    <div class="space-y-6 bg-white border border-[#E5E5E0] p-6 shadow-sm">
+                        <!-- Resolution Slider -->
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Resolution</label>
+                                <span class="text-[11px] font-sans text-[#666]" id="res-val">30px</span>
+                            </div>
+                            <input type="range" id="resolution" min="10" max="100" value="30" class="w-full accent-[#121212]" oninput="document.getElementById('res-val').innerText = this.value + 'px'; document.getElementById('nodes-val').innerText = 'Nodes: ' + (this.value * this.value);" />
+                            <div class="flex justify-between items-center mt-1">
+                                <p class="text-[12px] text-[#666] italic" id="nodes-val">Nodes: 900</p>
+                            </div>
+                        </div>
+
+                        <!-- Sigma I Slider -->
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Intensity Variance (σ_I)</label>
+                                <span class="text-[11px] font-sans text-[#666]" id="sigma-i-val">10</span>
+                            </div>
+                            <input type="range" id="sigma-i" min="1" max="100" value="10" class="w-full accent-[#121212]" oninput="document.getElementById('sigma-i-val').innerText = this.value;" />
+                        </div>
+
+                        <!-- Sigma X Slider -->
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Spatial Variance (σ_X)</label>
+                                <span class="text-[11px] font-sans text-[#666]" id="sigma-x-val">5</span>
+                            </div>
+                            <input type="range" id="sigma-x" min="1" max="50" value="5" class="w-full accent-[#121212]" oninput="document.getElementById('sigma-x-val').innerText = this.value;" />
+                        </div>
+
+                        <div class="pt-4 border-t border-[#E5E5E0]">
+                            <label class="flex items-center gap-2 cursor-pointer mb-6">
+                                <input type="checkbox" id="invert-mask" class="accent-[#121212]" />
+                                <span class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Invert Background Mask</span>
+                            </label>
+                            
+                            <button id="process-btn" disabled class="w-full bg-[#121212] hover:bg-[#333] disabled:bg-[#E5E5E0] disabled:text-[#999] disabled:cursor-not-allowed text-white font-sans text-[11px] uppercase tracking-widest font-bold py-3 px-4 transition-colors flex items-center justify-center gap-2">
+                                <i data-lucide="play" class="w-4 h-4"></i> Execute Generalized Eigendecomposition
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Visualizer Output -->
+            <div class="lg:col-span-8 flex flex-col gap-8">
+                <div class="flex-1 flex flex-col">
+                    <h1 class="text-3xl font-bold leading-tight mb-2 tracking-tight">
+                        Image Segmentation using Spectral Graph Theory
+                    </h1>
+                    <p class="font-sans text-[11px] uppercase tracking-widest text-[#666] mb-8">
+                        Interactive Prototype <span class="mx-2 text-[#CCC]">•</span> Ncut Criterion
+                    </p>
+
+                    <!-- Empty State -->
+                    <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-[#999] border border-[#E5E5E0] border-dashed bg-[#F9F9F7] py-24 min-h-[400px]">
+                        <span class="font-sans text-[11px] uppercase tracking-widest mb-2 font-bold text-[#666]">Awaiting Input</span>
+                        <p class="text-[13px] italic">Upload an image and execute to view theoretical outputs.</p>
+                    </div>
+
+                    <!-- Results State -->
+                    <div id="results-state" class="hidden flex flex-col gap-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            <!-- Graph Nodes -->
+                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
+                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
+                                    <canvas id="canvas-nodes" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
+                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">V = N</div>
+                                </div>
+                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Graph Nodes</h3>
+                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                    Image modeled as graph G=(V,E) where each pixel is a node.
+                                </p>
+                            </div>
+
+                            <!-- Bisection -->
+                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
+                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
+                                    <canvas id="canvas-bisection" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
+                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">Ncut</div>
+                                </div>
+                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Discrete Bisection</h3>
+                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                    Bi-partition derived by splitting the Fiedler vector at the median.
+                                </p>
+                            </div>
+
+                            <!-- Fiedler Vector -->
+                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
+                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
+                                    <canvas id="canvas-heatmap" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
+                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">v₂ ∈ ℝⁿ</div>
+                                </div>
+                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Fiedler Vector (λ₂)</h3>
+                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                    Continuous solution vector. (Red=high, Blue=low)
+                                </p>
+                            </div>
+
+                            <!-- Extracted Foreground -->
+                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
+                                <div class="w-full aspect-square bg-[#F9F9F7] checkerboard mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
+                                    <canvas id="canvas-fg" class="w-full h-full object-contain"></canvas>
+                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">Extracted</div>
+                                </div>
+                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Foreground Extraction</h3>
+                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                    Layer separation applying the Ncut bisection mask to the full-resolution source image.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Diagnostics -->
+                        <div class="p-6 bg-[#F3F3F1] border-l-2 border-[#121212]">
+                            <h3 class="font-sans text-[11px] uppercase tracking-widest mb-3 font-bold text-[#121212]">Diagnostics</h3>
+                            <ul class="text-[13px] space-y-1 font-mono text-[#444]">
+                                <li>Nodes (N): <span id="diag-nodes">0</span></li>
+                                <li>Laplacian (L): <span id="diag-laplacian">0 x 0</span></li>
+                                <li>Precision: 64-bit IEEE 754</li>
+                                <li class="mt-2 text-[#2D5A27] font-sans italic font-medium">✓ Eigen decomposition optimal cut threshold achieved.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Prototype Functional Footer -->
+    <footer class="h-12 border-t border-[#E5E5E0] bg-[#F9F9F7] flex items-center px-8 justify-between shrink-0 w-full z-10">
+        <div class="flex gap-6 font-sans text-[10px] uppercase tracking-widest text-[#666]">
+            <span>Status: <span id="status-text" class="text-[#666] font-bold">Ready for Input</span></span>
+        </div>
+        <div class="hidden sm:flex items-center gap-4">
+            <span class="font-sans text-[10px] text-[#999]">Prototype v1.0.4-academic</span>
+            <div class="flex gap-1" id="status-indicators">
+                <div class="w-2 h-2 rounded-full bg-[#121212]"></div>
+                <div class="w-2 h-2 rounded-full bg-[#E5E5E0]"></div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // Basic client-side script bridging UI state
+        const inputFiles = [document.getElementById('image-input'), document.getElementById('image-change-input')];
+        const imagePreview = document.getElementById('image-preview');
+        const uploadArea = document.getElementById('upload-area');
+        const sourceImage = document.getElementById('source-image');
+        const processButton = document.getElementById('process-btn');
+        const emptyState = document.getElementById('empty-state');
+        const resultsState = document.getElementById('results-state');
+        const statusText = document.getElementById('status-text');
+
+        inputFiles.forEach(input => {
+            input.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        sourceImage.src = event.target.result;
+                        uploadArea.classList.add('hidden');
+                        imagePreview.classList.remove('hidden');
+                        processButton.disabled = false;
+                        emptyState.classList.remove('hidden');
+                        resultsState.classList.add('hidden');
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        });
+
+        processButton.addEventListener('click', () => {
+            // Placeholder: This is where you would make a fetch() POST request to your Flask backend 
+            // to run the Python scipy.sparse.linalg operations.
+            statusText.innerText = "Processing...";
+            statusText.className = "text-[#121212] font-bold";
+            emptyState.classList.add('hidden');
+            
+            // Mock backend latency
+            setTimeout(() => {
+                statusText.innerText = "Analysis Complete";
+                statusText.className = "text-[#2D5A27] font-bold";
+                resultsState.classList.remove('hidden');
+                
+                // Update diagnostic counters based on current resolution slider
+                const res = parseInt(document.getElementById('resolution').value);
+                document.getElementById('diag-nodes').innerText = res * res;
+                document.getElementById('diag-laplacian').innerText = `${res * res} x ${res * res}`;
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

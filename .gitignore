@@ -43,3 +43,8 @@ Thumbs.db
 
 #testfiles
 ncut/compute_binary_partition.py
+*md
+.md
+*pdf
+.pdf
+.png

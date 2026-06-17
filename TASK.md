@@ -3,278 +3,184 @@
 This document tracks progress for the 6th-semester Graph Theory mini-project:
 **Image Segmentation using Normalized Cuts**, based on Shi and Malik (2000).
 
-The current repository is organized as a small Python package under `src/ncut`.
-The first milestone is to produce a working bipartition segmentation pipeline:
-
-```text
-image -> graph weights -> eigenvector -> binary partition -> visualization
-```
-
 ---
 
 ## Current Project Structure
 
-```text
+```
 sgt/
 +-- README.md
 +-- TASK.md
 +-- requirements.txt
++-- app.py                             # Flask backend (DONE)
++-- backend_frontend_integration.md
++-- agent.md                           # Architecture audit spec
++-- data/input/
 +-- scripts/
-|   +-- run_segmentation.py
+|   +-- run_segmentation.py            # CLI pipeline (DONE)
 +-- src/
 |   +-- ncut/
-|       +-- __init__.py
-|       +-- graph.py
-|       +-- ncut.py
-|       +-- partition.py
-|       +-- recursive.py
-|       +-- utils.py
-|       +-- visualize.py
+|       +-- __init__.py                # Empty — needs exports
+|       +-- graph.py                   # DONE
+|       +-- ncut.py                    # PARTIAL — power iteration only, no eigsh
+|       +-- partition.py               # DONE
+|       +-- recursive.py               # STUB only
+|       +-- utils.py                   # DONE
+|       +-- visualize.py               # DONE (console + PIL + restored)
++-- templates/
+|   +-- index.html                     # Frontend UI (DONE, with canvases)
 +-- tests/
-    +-- test_graph.py
-    +-- test_image_pipeline.py
-    +-- test_ncut.py
+    +-- test_graph.py                  # Diagnostic script, not pytest
+    +-- test_image_pipeline.py         # Diagnostic script, not pytest
+    +-- test_ncut.py                   # Diagnostic script, not pytest
 ```
 
-## Package Layout and Import Rules
+---
 
-The `src/ncut/` directory is the single source of truth for project code. Keep
-all algorithm modules inside this package so imports stay clean across tests,
-scripts, and future notebooks.
+## What's Done ✓
 
-- [x] Maintain the explicit package path `src/ncut/`.
-- [x] Keep `src/ncut/__init__.py` so Python recognizes `ncut` as a package.
-- [ ] Export the main public functions from `src/ncut/__init__.py` once module APIs stabilize.
-- [ ] Use absolute imports from outside the package:
+### All module bugs fixed
+- [x] Imports corrected across all modules
+- [x] Typos and dead code removed
+- [x] `visualize.py` fully restored (console summary, ASCII heatmap/mask, PNG saves)
+- [x] `run_segmentation.py` fully restored and functional
 
+### Full pipeline live via Flask + frontend
+- [x] `GET /` serves `index.html`
+- [x] `POST /api/segment` accepts base64 image + params → returns RGBA arrays for canvases
+- [x] Frontend renders heatmap, bisection mask, foreground overlay in real-time
+- [x] Diagnostics display: nodes, edges, NCut score, elapsed time
+- [x] Error handling on backend (400/500)
+
+### src/ncut/graph.py — COMPLETE
+- [x] Build graph from image pixels
+- [x] Gaussian weights using intensity and spatial distance
+- [x] Sparse CSR-like arrays + scipy.csr_matrix conversion
+- [x] Degree vector
+- [x] Parameter validation (image shape, sigma_i, sigma_x, radius)
+- [x] Self-edges removed (W[i,i] = 0)
+- [x] Strict radius-boundary (dist_x_sq < radius_sq, exclusive)
+- [x] Grayscale and RGB support
+
+### src/ncut/ncut.py — PARTIAL (core gap: eigenproblem)
+- [x] D^-1 W multiplication
+- [x] Fiedler vector via power iteration
+- [x] Zero-degree handling
+- [x] Solver input validation
+- [x] Verified on synthetic left/right image
+- [ ] **Replace manual iteration with `scipy.sparse.linalg.eigsh`**
+- [ ] **Solve generalized eigenproblem: (D - W)y = λ D y**
+- [ ] Return both eigenvalue and eigenvector
+- [ ] Add convergence/error reporting
+
+### src/ncut/partition.py — COMPLETE
+- [x] Threshold by median
+- [x] Threshold by mean
+- [x] Binary partition mask
+- [x] NCut score calculation
+- [x] Input validation
+- [ ] Threshold by zero-crossing (optional enhancement)
+- [ ] Threshold search over Fiedler vector (optional enhancement)
+
+### src/ncut/recursive.py — STUB ONLY (top priority gap)
+- [x] `compute_partition_for_subgraph` wrapper
+- [x] `build_label_map` helper
+- [ ] `extract_subgraph(weight_matrix, node_indices)` — slice CSR into sub-adjacency matrix
+- [ ] `recursive_split(...)` — actual recursion with stopping conditions
+- [ ] `recursive_partition(...)` — public entry point
+- [ ] Stopping conditions: max depth, min segment size, max NCut, min eigenvector stability
+- [ ] Return final 2D label map
+- [ ] Tests
+
+### src/ncut/utils.py — COMPLETE
+- [x] Load image from disk
+- [x] Grayscale/RGB conversion
+- [x] Normalize to [0, 1]
+- [x] Resize/downsample
+- [x] Reshape vectors to image grid
+- [x] flatten_image helper
+- [ ] Guard against disconnected/invalid graphs (solid-color → zero degree → garbage Fiedler)
+
+### src/ncut/visualize.py — COMPLETE (console + PIL output)
+- [x] Console summary printing
+- [x] ASCII Fiedler heatmap
+- [x] ASCII partition mask
+- [x] Save mask as PNG
+- [x] Save Fiedler heatmap as PNG
+- [x] Save comparison (original + mask)
+- [ ] Matplotlib plots: original image, Fiedler heatmap, binary mask, overlay (2×2 figure)
+
+### scripts/run_segmentation.py — COMPLETE
+- [x] CLI with argparse (image_path, sigma_i, sigma_x, radius, threshold, output)
+- [x] Full pipeline: load → build_graph → find_fiedler → partition → visualize
+- [x] Save outputs (mask, heatmap, comparison)
+- [x] Print summary info
+
+### app.py (Flask backend) — COMPLETE
+- [x] `GET /` serves index.html
+- [x] `POST /api/segment` accepts base64 image + params
+- [x] Returns JSON: width, height, nodes, edges, ncut_score, threshold, elapsed_ms
+- [x] Returns RGBA flat arrays for: heatmap, bisection mask, original nodes, foreground
+- [x] Fiedler → blue-white-red colormap
+- [x] Mask → black/white RGBA
+- [x] Foreground → masked transparency
+- [x] Error handling
+
+### templates/index.html — COMPLETE
+- [x] UI with image upload, sliders, process button
+- [x] Canvas elements for heatmap, bisection, foreground
+- [x] Diagnostics display section
+
+### src/ncut/__init__.py — EMPTY
+- [ ] Export main public API functions once stable
+
+### Tests — DIAGNOSTIC SCRIPTS, NOT PYTEST
+- [ ] Convert `test_graph.py`, `test_ncut.py`, `test_image_pipeline.py` to proper pytest
+  - Rename `run_*` → `test_*` so pytest collects them
+- [ ] Remove `sys.path.append(...)` from all test files
+- [ ] Add `test_partition.py`
+- [ ] Add integration test (full pipeline, tiny mock image)
+- [ ] Add tests for `recursive.py`
+
+---
+
+## Next Steps (ordered by priority)
+
+### 1. Complete `recursive.py`
+Missing functions (see architecture audit in `agent.md`):
+- `extract_subgraph(weight_matrix, node_indices)` — slice CSR into sub-adjacency matrix
+- `recursive_split(...)` — actual recursion with stopping conditions (max depth, min segment size, max NCut, stability)
+- `recursive_partition(...)` — public entry point
+
+### 2. Convert tests to proper pytest
+- Rename `run_*` → `test_*` in all 3 test files
+- Remove `sys.path.append` usage
+- Add `test_partition.py`
+- Add integration test
+
+### 3. Upgrade eigensolver in `ncut.py`
 ```python
-from ncut.graph import build_graph_structures
-from ncut.ncut import find_fiedler_vector
+from scipy.sparse.linalg import eigsh
+# solve (D - W) y = λ D y  →  eigsh on L_sym
 ```
+- This is the only remaining item in Prajwal's task split.
 
-- [ ] Use package-relative imports inside `src/ncut` modules:
+### 4. Export public API from `__init__.py`
+Once module APIs stabilize, export key functions so callers don't need to know internal module names.
 
-```python
-from .graph import build_graph_structures
-from .partition import partition_fiedler_vector
-```
+### 5. Add `/api/segment` support for recursive multi-region (after #1)
+Accept a `mode` parameter (`"bipartition"` vs `"recursive"`) and return a label map for multi-region coloring instead of a binary mask.
 
-- [ ] Avoid creating duplicate top-level modules such as `engine.py`, `solver.py`,
-  `logic.py`, or `preprocess.py` outside `src/ncut`.
-- [ ] Avoid long-term `sys.path.append(...)` usage in project scripts and tests.
-  Prefer editable installation or setting `PYTHONPATH=src` while developing.
-- [ ] Keep scripts in `scripts/` as orchestration only; reusable logic belongs in
-  `src/ncut/`.
-
----
-
-## What Is Done
-
-- [x] Repository structure created.
-- [x] Basic `src/ncut` package created.
-- [x] Graph construction started in `src/ncut/graph.py`.
-- [x] Pixel-to-node mapping implemented.
-- [x] Spatial distance calculation implemented.
-- [x] Intensity/color distance calculation implemented.
-- [x] Gaussian pixel similarity weight formula implemented.
-- [x] Manual CSR-like graph storage implemented:
-  - `values`
-  - `col_indices`
-  - `row_pointers`
-  - `degree_vector`
-- [x] Basic iterative solver started in `src/ncut/ncut.py`.
-- [x] Simple diagnostic graph test added in `tests/test_graph.py`.
-- [x] Image loading pipeline diagnostic added in `tests/test_image_pipeline.py`.
-- [x] Simple synthetic left/right segmentation diagnostic added in `tests/test_ncut.py`.
-
----
-
-## Immediate Fixes Needed
-
-- [x] Fix `requirements.txt`.
-  - Current environment versions are pinned for `numpy`, `scipy`, `pillow`, and `matplotlib`.
-- [ ] Convert diagnostic test files into proper pytest tests.
-- [ ] Remove temporary `sys.path.append(...)` imports from tests/scripts after
-  package import setup is finalized.
-- [ ] Fix the zero-degree branch in `d_inverse_w_product` inside `src/ncut/ncut.py`.
-- [x] Decide whether self-edges should be included in the graph.
-  - Self-edges are omitted so `W[i, i] = 0`.
-- [x] Add input validation for:
-  - image shape
-  - positive `sigma_i`
-  - positive `sigma_x`
-  - positive `radius`
-- [x] Update `README.md` to match the actual package structure.
-
----
-
-## Core Implementation Plan
-
-### 1. Graph Construction: `src/ncut/graph.py`
-
-- [x] Build graph from image pixels.
-- [x] Compute Gaussian weights using intensity and spatial distance.
-- [x] Store weights in sparse CSR-like arrays.
-- [x] Build degree vector.
-- [x] Add parameter validation.
-- [x] Remove or explicitly handle self-edges.
-- [x] Document strict radius-boundary behavior.
-- [x] Add helper to convert manual CSR arrays into `scipy.sparse.csr_matrix`.
-- [x] Add support notes for grayscale and RGB images.
-- [x] Add tests for small grayscale image.
-- [x] Add tests for CSR matrix shape, diagonal, and degree row sums.
-
-### 2. Eigen Solver: `src/ncut/ncut.py`
-
-- [x] Implement basic `D^-1 W` multiplication.
-- [x] Implement prototype Fiedler vector iteration.
-- [x] Verify solver on simple synthetic left/right image.
-- [ ] Fix zero-degree node handling.
-- [ ] Replace or supplement manual solver with `scipy.sparse.linalg.eigsh`.
-- [ ] Solve the normalized cuts generalized eigenproblem:
-
-```text
-(D - W)y = lambda D y
-```
-
-- [ ] Return both eigenvalue and eigenvector.
-- [ ] Add convergence/error reporting.
-- [ ] Add tests for solver shape and stable partition direction.
-
-### 3. Partitioning: `src/ncut/partition.py`
-
-- [ ] Implement thresholding by zero crossing.
-- [ ] Implement thresholding by median value.
-- [ ] Implement optional threshold search over the Fiedler vector.
-- [ ] Implement NCut score:
-
-```text
-Ncut(A, B) = cut(A, B) / assoc(A, V) + cut(A, B) / assoc(B, V)
-```
-
-- [ ] Return binary mask, threshold, and NCut score.
-- [ ] Add tests for mask shape and split quality.
-
-### 4. Recursive Segmentation: `src/ncut/recursive.py`
-
-- [ ] Implement single bipartition wrapper.
-- [ ] Add recursive splitting.
-- [ ] Add stopping conditions:
-  - maximum depth
-  - minimum segment size
-  - maximum allowed NCut score
-  - minimum eigenvector stability
-- [ ] Return final 2D label map.
-- [ ] Add tests for simple multi-region mock image.
-
-### 5. Utilities and Preprocessing: `src/ncut/utils.py`
-
-- [x] Load image from disk.
-- [x] Convert image to grayscale or RGB.
-- [x] Normalize pixel values to `[0, 1]`.
-- [x] Resize/downsample large images for memory safety.
-- [x] Reshape 1D vectors back to image grid.
-- [ ] Create output directory helpers.
-
-### 6. Visualization: `src/ncut/visualize.py`
-
-- [ ] Plot original image.
-- [ ] Plot Fiedler vector heatmap.
-- [ ] Plot binary segmentation mask.
-- [ ] Plot segmentation overlay on original image.
-- [ ] Save result images to an output folder.
-
-### 7. Command-Line Script: `scripts/run_segmentation.py`
-
-- [ ] Accept image path from command line.
-- [ ] Import reusable logic through the `ncut` package, not by duplicating code.
-- [ ] Accept algorithm parameters:
-  - `sigma_i`
-  - `sigma_x`
-  - `radius`
-  - threshold method
-  - optional max recursion depth
-- [ ] Run the full segmentation pipeline.
-- [ ] Save visualization outputs.
-- [ ] Print useful summary information:
-  - image size
-  - graph node count
-  - edge count
-  - selected threshold
-  - NCut score
-
----
-
-## Testing Plan
-
-- [ ] Install and configure `pytest`.
-- [ ] Configure tests so `from ncut...` imports work consistently.
-- [ ] Convert current diagnostic scripts into pytest functions.
-- [x] Add graph construction tests.
-- [ ] Add solver tests.
-- [ ] Add partitioning tests.
-- [x] Add preprocessing tests.
-- [ ] Add one full pipeline integration test using a tiny mock image.
-
----
-
-## Documentation Plan
-
-- [x] Update `README.md` with the actual project structure.
-- [x] Add short explanation of Normalized Cuts.
-- [x] Add explanation of graph construction.
-- [x] Add explanation of Fiedler vector partitioning.
-- [x] Add setup instructions.
-- [x] Add run instructions.
-- [ ] Add example output section once visualization is complete.
-- [x] Add limitations:
-  - high memory usage for large images
-  - parameter sensitivity
-  - recursive segmentation needs tuning
-
----
-
-## Suggested Work Order
-
-1. Fix small solver bug in `src/ncut/ncut.py`.
-2. Implement `src/ncut/partition.py`.
-3. Implement visualization in `src/ncut/visualize.py`.
-4. Fill `scripts/run_segmentation.py`.
-5. Upgrade solver to use SciPy sparse eigen-solvers.
-6. Convert current diagnostics into real pytest tests.
-7. Add recursive segmentation in `src/ncut/recursive.py`.
+### 6. Error handling for disconnected graphs in `utils.py`
+Guard against images that produce a fully disconnected graph (e.g., solid-color). Check `degree_vector` before calling `find_fiedler_vector`.
 
 ---
 
 ## Team Task Split
 
-### Kiran: Partitioning and Tuning
-
-- [ ] Implement thresholding in `src/ncut/partition.py`.
-- [ ] Implement NCut score calculation.
-- [ ] Compare zero-crossing, median, and best-threshold methods.
-- [ ] Tune `sigma_i`, `sigma_x`, and `radius` on test images.
-
-### Prajwal: Graph and Solver
-
-- [x] Set up repository structure.
-- [x] Implement initial graph weight construction.
-- [x] Implement initial Fiedler vector solver.
-- [x] Improve graph validation and sparse matrix handling.
-- [ ] Upgrade solver using SciPy sparse eigen-solvers.
-
-### Saksham: Preprocessing and Robustness
-
-- [x] Implement image loading in `src/ncut/utils.py`.
-- [x] Add grayscale/RGB conversion.
-- [x] Add image normalization.
-- [x] Add resizing/downsampling for memory safety.
-- [ ] Add error handling for disconnected or invalid graphs.
-
-### Miraj: Visualization and Results
-
-- [ ] Implement plotting in `src/ncut/visualize.py`.
-- [ ] Create original-vs-mask-vs-overlay result views.
-- [ ] Curate simple and complex test images.
-- [ ] Prepare final result screenshots.
-- [ ] Help maintain README and presentation material.
+| Who | What |
+|-----|------|
+| **Kiran** | Convert tests to pytest (#2) |
+| **Prajwal** | `recursive.py` functions (#1) + `eigsh` upgrade (#3) |
+| **Saksham** | Disconnected graph guard in `utils.py` (#6) |
+| **Miraj** | `__init__.py` exports (#4) + test result screenshots |

@@ -207,52 +207,125 @@
         // Initialize Lucide Icons
         lucide.createIcons();
 
-        // Basic client-side script bridging UI state
-        const inputFiles = [document.getElementById('image-input'), document.getElementById('image-change-input')];
-        const imagePreview = document.getElementById('image-preview');
-        const uploadArea = document.getElementById('upload-area');
-        const sourceImage = document.getElementById('source-image');
+        // --- DOM refs ---
+        const inputFiles    = [document.getElementById('image-input'), document.getElementById('image-change-input')];
+        const imagePreview  = document.getElementById('image-preview');
+        const uploadArea    = document.getElementById('upload-area');
+        const sourceImage   = document.getElementById('source-image');
         const processButton = document.getElementById('process-btn');
-        const emptyState = document.getElementById('empty-state');
-        const resultsState = document.getElementById('results-state');
-        const statusText = document.getElementById('status-text');
+        const emptyState    = document.getElementById('empty-state');
+        const resultsState  = document.getElementById('results-state');
+        const statusText    = document.getElementById('status-text');
 
+        let currentImageDataURL = null;
+
+        // --- Image upload ---
         inputFiles.forEach(input => {
             input.addEventListener('change', (e) => {
                 const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        sourceImage.src = event.target.result;
-                        uploadArea.classList.add('hidden');
-                        imagePreview.classList.remove('hidden');
-                        processButton.disabled = false;
-                        emptyState.classList.remove('hidden');
-                        resultsState.classList.add('hidden');
-                    };
-                    reader.readAsDataURL(file);
-                }
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    currentImageDataURL = event.target.result;
+                    sourceImage.src = currentImageDataURL;
+                    uploadArea.classList.add('hidden');
+                    imagePreview.classList.remove('hidden');
+                    processButton.disabled = false;
+                    emptyState.classList.remove('hidden');
+                    resultsState.classList.add('hidden');
+                    statusText.innerText = 'Ready';
+                    statusText.className = 'text-[#666] font-bold';
+                };
+                reader.readAsDataURL(file);
             });
         });
 
-        processButton.addEventListener('click', () => {
-            // Placeholder: This is where you would make a fetch() POST request to your Flask backend 
-            // to run the Python scipy.sparse.linalg operations.
-            statusText.innerText = "Processing...";
-            statusText.className = "text-[#121212] font-bold";
+        // --- Canvas helpers ---
+        function renderRGBA(canvasId, rgbaFlat, w, h) {
+            const canvas = document.getElementById(canvasId);
+            canvas.width  = w;
+            canvas.height = h;
+            const ctx  = canvas.getContext('2d');
+            const data = new Uint8ClampedArray(rgbaFlat);
+            ctx.putImageData(new ImageData(data, w, h), 0, 0);
+        }
+
+        // --- Diagnostics update ---
+        function updateDiagnostics(data) {
+            document.getElementById('diag-nodes').innerText     = data.nodes;
+            document.getElementById('diag-laplacian').innerText = `${data.nodes} × ${data.nodes}`;
+
+            // Inject extra diagnostics below the existing list if not already there
+            let extra = document.getElementById('diag-extra');
+            if (!extra) {
+                extra = document.createElement('li');
+                extra.id = 'diag-extra';
+                extra.className = 'mt-2 space-y-1';
+                document.querySelector('#results-state ul').appendChild(extra);
+            }
+            extra.innerHTML = `
+                <span class="block">Edges: ${data.edges}</span>
+                <span class="block">NCut score: ${data.ncut_score.toFixed(6)}</span>
+                <span class="block">Threshold: ${data.threshold.toFixed(6)}</span>
+                <span class="block">Elapsed: ${data.elapsed_ms} ms</span>
+                <span class="block text-[11px]">Resolution: ${data.width}×${data.height} px</span>
+            `;
+        }
+
+        // --- Process button ---
+        processButton.addEventListener('click', async () => {
+            if (!currentImageDataURL) return;
+
+            const sigmaI    = parseFloat(document.getElementById('sigma-i').value) / 10.0;
+            const sigmaX    = parseFloat(document.getElementById('sigma-x').value) / 10.0;
+            const resolution = parseInt(document.getElementById('resolution').value);
+
+            statusText.innerText = 'Computing…';
+            statusText.className = 'text-[#121212] font-bold';
+            processButton.disabled = true;
             emptyState.classList.add('hidden');
-            
-            // Mock backend latency
-            setTimeout(() => {
-                statusText.innerText = "Analysis Complete";
-                statusText.className = "text-[#2D5A27] font-bold";
+            resultsState.classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/segment', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image:      currentImageDataURL,
+                        sigma_i:    sigmaI,
+                        sigma_x:    sigmaX,
+                        resolution: resolution,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || `Server error ${response.status}`);
+                }
+
+                const data = await response.json();
+                const { width: w, height: h } = data;
+
+                // Render all four canvases
+                renderRGBA('canvas-nodes',     data.nodes_rgba,     w, h);
+                renderRGBA('canvas-bisection', data.bisection_rgba, w, h);
+                renderRGBA('canvas-heatmap',   data.heatmap_rgba,   w, h);
+                renderRGBA('canvas-fg',        data.fg_rgba,         w, h);
+
+                updateDiagnostics(data);
+
                 resultsState.classList.remove('hidden');
-                
-                // Update diagnostic counters based on current resolution slider
-                const res = parseInt(document.getElementById('resolution').value);
-                document.getElementById('diag-nodes').innerText = res * res;
-                document.getElementById('diag-laplacian').innerText = `${res * res} x ${res * res}`;
-            }, 1000);
+                statusText.innerText = 'Analysis Complete';
+                statusText.className = 'text-[#2D5A27] font-bold';
+
+            } catch (err) {
+                statusText.innerText = `Error: ${err.message}`;
+                statusText.className = 'text-red-600 font-bold';
+                emptyState.classList.remove('hidden');
+                console.error(err);
+            } finally {
+                processButton.disabled = false;
+            }
         });
     </script>
 </body>

@@ -1,6 +1,7 @@
-# md files
-.md
+# md files (ignore all .md except README.md and TASK.md)
 *.md
+!README.md
+!TASK.md
 
 # virtual environment
 .env
@@ -43,8 +44,5 @@ Thumbs.db
 
 #testfiles
 ncut/compute_binary_partition.py
-*md
-.md
-*pdf
 .pdf
 .png

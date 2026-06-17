@@ -1,9 +1,7 @@
-from multiprocessing import Value
-
 import numpy as np
 from scipy.sparse import issparse
 
-def validate_partition_imputs(W, fiedler_vector):
+def validate_partition_inputs(W, fiedler_vector):
     if not issparse(W):
         raise TypeError("W must be a scipy sparse matrix.")
     
@@ -87,7 +85,7 @@ def partition_graph(W, fiedler_vector, threshold_method="median"):
 
     """
 
-    validate_partition_imputs(W, fiedler_vector)
+    validate_partition_inputs(W, fiedler_vector)
 
     threshold = find_threshold(fiedler_vector, method=threshold_method)
 

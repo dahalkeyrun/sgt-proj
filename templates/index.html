@@ -10,8 +10,10 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
-        .checkerboard {
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="10" height="10" fill="%23e5e5e0"/><rect x="10" y="10" width="10" height="10" fill="%23e5e5e0"/></svg>');
+        .checkered-bg {
+            background-image: linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
         }
     </style>
 </head>
@@ -31,10 +33,109 @@
     </header>
 
     <main class="flex-1 overflow-y-auto p-8 lg:p-12">
-        <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12">
+        <div class="max-w-7xl mx-auto flex gap-12">
             
-            <!-- Left Column: Input and Controls -->
-            <div class="lg:col-span-4 space-y-8">
+            <!-- Left: Parameter Panel (styled after React ParameterPanel) -->
+            <div class="w-[340px] bg-white p-6 flex flex-col gap-8 border-r border-gray-100 shadow-sm shrink-0 self-start sticky top-8">
+                
+                <!-- RESOLUTION -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Resolution</label>
+                        <span class="text-[11px] text-gray-500" id="res-val">30px</span>
+                    </div>
+                    <input type="range" id="resolution" min="10" max="100" value="30" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" oninput="document.getElementById('res-val').innerText = this.value + 'px'; document.getElementById('nodes-val').innerText = 'Nodes: ' + (this.value * this.value);" />
+                    <span class="text-[13px] font-serif italic text-gray-500" id="nodes-val">Nodes: 900</span>
+                </div>
+
+                <!-- INTENSITY VARIANCE -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Intensity Variance (Σ_I)</label>
+                        <span class="text-[11px] text-gray-500" id="sigma-i-val">0.10</span>
+                    </div>
+                    <input type="range" id="sigma-i" min="1" max="100" value="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" oninput="document.getElementById('sigma-i-val').innerText = (this.value/100).toFixed(2);" />
+                </div>
+
+                <!-- SPATIAL VARIANCE -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Spatial Variance (Σ_X)</label>
+                        <span class="text-[11px] text-gray-500" id="sigma-x-val">4.0</span>
+                    </div>
+                    <input type="range" id="sigma-x" min="1" max="50" value="40" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" oninput="document.getElementById('sigma-x-val').innerText = (this.value/10).toFixed(1);" />
+                </div>
+
+                <!-- SPATIAL RADIUS -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Spatial Radius (r)</label>
+                        <span class="text-[11px] text-gray-500" id="radius-val">5</span>
+                    </div>
+                    <input type="range" id="radius" min="1" max="15" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" oninput="document.getElementById('radius-val').innerText = this.value;" />
+                </div>
+
+                <!-- AFFINITY MODE -->
+                <div class="flex flex-col gap-2">
+                    <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Affinity Mode</label>
+                    <div class="border border-gray-200 bg-[#fbfbfb] p-2">
+                        <span class="text-[13px] font-serif text-gray-900">Fully Connected</span>
+                    </div>
+                </div>
+
+                <!-- COLOR METRIC & CUT THRESHOLD -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-2">
+                        <label for="color-metric" class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Color Metric</label>
+                        <select id="color-metric" name="color_metric" class="w-full border border-gray-200 bg-[#fbfbfb] p-2 text-[13px] font-serif text-gray-900 appearance-none focus:outline-none">
+                            <option value="grayscale" selected>Grayscale</option>
+                            <option value="hsv">HSV Color</option>
+                            <option value="rgb">RGB Vector</option>
+                            <option value="texture">Texture</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex flex-col gap-2">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Cut Threshold</label>
+                        <div class="border border-gray-200 bg-[#fbfbfb] p-2">
+                            <span class="text-[13px] font-serif text-gray-900">Optimal Ncut</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CUT THRESHOLD PERCENTILE -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Cut Threshold Percentile</label>
+                        <span class="text-[11px] text-gray-500">50%</span>
+                    </div>
+                    <input type="range" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" />
+                    <span class="text-[13px] leading-tight font-serif italic text-gray-500 mt-1">
+                        Interactively adjusts the thresholding percentile on the computed Fiedler vector.
+                    </span>
+                </div>
+
+                <hr class="border-gray-200 mt-2" />
+
+                <!-- Execute / Stop Buttons -->
+                <div class="pt-2 flex flex-col gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer mb-6">
+                        <input type="checkbox" id="invert-mask" class="accent-black" />
+                        <span class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Invert Background Mask</span>
+                    </label>
+                    
+                    <button id="process-btn" disabled class="w-full bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white text-[11px] font-bold tracking-widest uppercase py-3 px-4 transition-colors flex items-center justify-center gap-2">
+                        <i data-lucide="play" class="w-4 h-4"></i> Execute Generalized Eigendecomposition
+                    </button>
+
+                    <button id="stop-btn" class="w-full border border-red-400 text-red-500 hover:bg-red-50 text-[11px] font-bold tracking-widest uppercase py-3 px-4 transition-colors flex items-center justify-center gap-2 hidden">
+                        <i data-lucide="square" class="w-4 h-4"></i> Stop
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right: Image Source & Visualizer Output -->
+            <div class="flex-1 flex flex-col gap-8">
                 <section>
                     <h2 class="font-sans text-[10px] uppercase tracking-widest text-[#999] mb-4">Image Source</h2>
                     
@@ -55,133 +156,118 @@
                     </div>
                 </section>
 
-                <section>
-                    <h2 class="font-sans text-[10px] uppercase tracking-widest text-[#999] mb-4">Hyperparameters</h2>
-                    
-                    <div class="space-y-6 bg-white border border-[#E5E5E0] p-6 shadow-sm">
-                        <!-- Resolution Slider -->
-                        <div>
-                            <div class="flex justify-between mb-2">
-                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Resolution</label>
-                                <span class="text-[11px] font-sans text-[#666]" id="res-val">30px</span>
-                            </div>
-                            <input type="range" id="resolution" min="10" max="100" value="30" class="w-full accent-[#121212]" oninput="document.getElementById('res-val').innerText = this.value + 'px'; document.getElementById('nodes-val').innerText = 'Nodes: ' + (this.value * this.value);" />
-                            <div class="flex justify-between items-center mt-1">
-                                <p class="text-[12px] text-[#666] italic" id="nodes-val">Nodes: 900</p>
-                            </div>
-                        </div>
-
-                        <!-- Sigma I Slider -->
-                        <div>
-                            <div class="flex justify-between mb-2">
-                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Intensity Variance (σ_I)</label>
-                                <span class="text-[11px] font-sans text-[#666]" id="sigma-i-val">10</span>
-                            </div>
-                            <input type="range" id="sigma-i" min="1" max="100" value="10" class="w-full accent-[#121212]" oninput="document.getElementById('sigma-i-val').innerText = this.value;" />
-                        </div>
-
-                        <!-- Sigma X Slider -->
-                        <div>
-                            <div class="flex justify-between mb-2">
-                                <label class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Spatial Variance (σ_X)</label>
-                                <span class="text-[11px] font-sans text-[#666]" id="sigma-x-val">5</span>
-                            </div>
-                            <input type="range" id="sigma-x" min="1" max="50" value="5" class="w-full accent-[#121212]" oninput="document.getElementById('sigma-x-val').innerText = this.value;" />
-                        </div>
-
-                        <div class="pt-4 border-t border-[#E5E5E0]">
-                            <label class="flex items-center gap-2 cursor-pointer mb-6">
-                                <input type="checkbox" id="invert-mask" class="accent-[#121212]" />
-                                <span class="font-sans text-[11px] uppercase tracking-widest font-bold text-[#121212]">Invert Background Mask</span>
-                            </label>
-                            
-                            <button id="process-btn" disabled class="w-full bg-[#121212] hover:bg-[#333] disabled:bg-[#E5E5E0] disabled:text-[#999] disabled:cursor-not-allowed text-white font-sans text-[11px] uppercase tracking-widest font-bold py-3 px-4 transition-colors flex items-center justify-center gap-2">
-                                <i data-lucide="play" class="w-4 h-4"></i> Execute Generalized Eigendecomposition
-                            </button>
-                        </div>
-                    </div>
-                </section>
-            </div>
-
-            <!-- Right Column: Visualizer Output -->
-            <div class="lg:col-span-8 flex flex-col gap-8">
                 <div class="flex-1 flex flex-col">
-                    <h1 class="text-3xl font-bold leading-tight mb-2 tracking-tight">
-                        Image Segmentation using Spectral Graph Theory
-                    </h1>
-                    <p class="font-sans text-[11px] uppercase tracking-widest text-[#666] mb-8">
-                        Interactive Prototype <span class="mx-2 text-[#CCC]">•</span> Ncut Criterion
-                    </p>
-
-                    <!-- Empty State -->
-                    <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-[#999] border border-[#E5E5E0] border-dashed bg-[#F9F9F7] py-24 min-h-[400px]">
-                        <span class="font-sans text-[11px] uppercase tracking-widest mb-2 font-bold text-[#666]">Awaiting Input</span>
-                        <p class="text-[13px] italic">Upload an image and execute to view theoretical outputs.</p>
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold font-serif text-gray-900 tracking-tight">
+                            Image Segmentation using Spectral Graph Theory
+                        </h1>
+                        <p class="text-xs font-mono text-gray-500 uppercase tracking-widest mt-2">
+                            Interactive Prototype <span class="mx-2">•</span> Ncut Criterion
+                        </p>
                     </div>
 
-                    <!-- Results State -->
-                    <div id="results-state" class="hidden flex flex-col gap-8">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            
-                            <!-- Graph Nodes -->
-                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
-                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
-                                    <canvas id="canvas-nodes" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
-                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">V = N</div>
+                    <!-- Results Grid Container -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        <!-- CARD 1: GRAPH NODES -->
+                        <div class="bg-white border border-gray-200 p-4 shadow-sm flex flex-col transition-all duration-300 hover:shadow-md">
+                            <div class="relative aspect-square bg-gray-50 border border-gray-200 border-dashed mb-4 overflow-hidden">
+                                <div class="absolute top-4 left-4 bg-white px-2 py-1 text-[10px] font-mono tracking-widest text-gray-600 shadow-sm z-10 border border-gray-100">
+                                    V = N
                                 </div>
-                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Graph Nodes</h3>
-                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                <canvas id="canvas-nodes" class="w-full h-full object-contain hidden" style="image-rendering: pixelated;"></canvas>
+                                <div id="pending-nodes" class="w-full h-full flex items-center justify-center text-gray-400 font-mono text-xs tracking-widest bg-gray-100">
+                                    PENDING
+                                </div>
+                                <div id="overlay-nodes" class="absolute inset-0 bg-white/50 backdrop-blur-[2px] items-center justify-center z-20 hidden">
+                                    <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            </div>
+                            <div class="mt-auto">
+                                <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase">Graph Nodes</h3>
+                                <p class="text-xs font-serif italic text-gray-600 mt-1">
                                     Image modeled as graph G=(V,E) where each pixel is a node.
                                 </p>
                             </div>
+                        </div>
 
-                            <!-- Bisection -->
-                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
-                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
-                                    <canvas id="canvas-bisection" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
-                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">Ncut</div>
+                        <!-- CARD 2: RECURSIVE NCUT SEGMENTATION -->
+                        <div class="bg-white border border-gray-200 p-4 shadow-sm flex flex-col transition-all duration-300 hover:shadow-md">
+                            <div class="relative aspect-square bg-gray-50 border border-gray-200 border-dashed mb-4 overflow-hidden">
+                                <div class="absolute top-4 left-4 bg-white px-2 py-1 text-[10px] font-mono tracking-widest text-gray-600 shadow-sm z-10 border border-gray-100">
+                                    NCUT
                                 </div>
-                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Discrete Bisection</h3>
-                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
-                                    Bi-partition derived by splitting the Fiedler vector at the median.
+                                <canvas id="canvas-segments" class="w-full h-full object-contain hidden" style="image-rendering: pixelated;"></canvas>
+                                <div id="pending-segments" class="w-full h-full flex items-center justify-center text-gray-400 font-mono text-xs tracking-widest bg-gray-100">
+                                    PENDING
+                                </div>
+                                <div id="overlay-segments" class="absolute inset-0 bg-white/50 backdrop-blur-[2px] items-center justify-center z-20 hidden">
+                                    <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            </div>
+                            <div class="mt-auto">
+                                <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase">Recursive NCut Segmentation</h3>
+                                <p class="text-xs font-serif italic text-gray-600 mt-1">
+                                    Recursive spectral partitioning producing multiple image segments.
                                 </p>
                             </div>
+                        </div>
 
-                            <!-- Fiedler Vector -->
-                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
-                                <div class="w-full aspect-square bg-[#EEE] mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
-                                    <canvas id="canvas-heatmap" class="w-full h-full object-contain" style="image-rendering: pixelated;"></canvas>
-                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">v₂ ∈ ℝⁿ</div>
+                        <!-- CARD 3: FIEDLER VECTOR -->
+                        <div class="bg-white border border-gray-200 p-4 shadow-sm flex flex-col transition-all duration-300 hover:shadow-md">
+                            <div class="relative aspect-square bg-gray-50 border border-gray-200 border-dashed mb-4 overflow-hidden">
+                                <div class="absolute top-4 left-4 bg-white px-2 py-1 text-[10px] font-mono tracking-widest text-gray-600 shadow-sm z-10 border border-gray-100">
+                                    V₂ ∈ Rⁿ
                                 </div>
-                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Fiedler Vector (λ₂)</h3>
-                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                <canvas id="canvas-heatmap" class="w-full h-full object-contain hidden" style="image-rendering: pixelated;"></canvas>
+                                <div id="pending-heatmap" class="w-full h-full flex items-center justify-center text-gray-400 font-mono text-xs tracking-widest bg-gray-100">
+                                    PENDING
+                                </div>
+                                <div id="overlay-heatmap" class="absolute inset-0 bg-white/50 backdrop-blur-[2px] items-center justify-center z-20 hidden">
+                                    <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            </div>
+                            <div class="mt-auto">
+                                <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase">Fiedler Vector (λ₂)</h3>
+                                <p class="text-xs font-serif italic text-gray-600 mt-1">
                                     Continuous solution vector. (Red=high, Blue=low)
                                 </p>
                             </div>
+                        </div>
 
-                            <!-- Extracted Foreground -->
-                            <div class="border border-[#E5E5E0] bg-white p-4 flex flex-col shadow-sm">
-                                <div class="w-full aspect-square bg-[#F9F9F7] checkerboard mb-4 flex items-center justify-center relative border border-dashed border-[#CCC]">
-                                    <canvas id="canvas-fg" class="w-full h-full object-contain"></canvas>
-                                    <div class="absolute top-2 left-2 bg-white border border-[#E5E5E0] text-[#121212] font-sans text-[9px] uppercase tracking-widest px-1.5 py-0.5 shadow-sm">Extracted</div>
+                        <!-- CARD 4: FOREGROUND EXTRACTION -->
+                        <div class="bg-white border border-gray-200 p-4 shadow-sm flex flex-col transition-all duration-300 hover:shadow-md">
+                            <div class="relative aspect-square bg-gray-50 border border-gray-200 border-dashed mb-4 overflow-hidden checkered-bg">
+                                <div class="absolute top-4 left-4 bg-white px-2 py-1 text-[10px] font-mono tracking-widest text-gray-600 shadow-sm z-10 border border-gray-100">
+                                    EXTRACTED
                                 </div>
-                                <h3 class="font-sans text-[10px] uppercase font-bold text-[#121212] mb-1">Foreground Extraction</h3>
-                                <p class="text-[11px] italic text-[#666] leading-snug flex-1">
+                                <canvas id="canvas-fg" class="w-full h-full object-contain hidden"></canvas>
+                                <div id="pending-fg" class="w-full h-full flex items-center justify-center text-gray-400 font-mono text-xs tracking-widest bg-gray-100/80 backdrop-blur-sm">
+                                    <span class="bg-white px-3 py-1 border border-gray-200 shadow-sm">PENDING</span>
+                                </div>
+                                <div id="overlay-fg" class="absolute inset-0 bg-white/50 backdrop-blur-[2px] items-center justify-center z-20 hidden">
+                                    <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            </div>
+                            <div class="mt-auto">
+                                <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase">Foreground Extraction</h3>
+                                <p class="text-xs font-serif italic text-gray-600 mt-1">
                                     Layer separation applying the Ncut bisection mask to the full-resolution source image.
                                 </p>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Diagnostics -->
-                        <div class="p-6 bg-[#F3F3F1] border-l-2 border-[#121212]">
-                            <h3 class="font-sans text-[11px] uppercase tracking-widest mb-3 font-bold text-[#121212]">Diagnostics</h3>
-                            <ul class="text-[13px] space-y-1 font-mono text-[#444]">
-                                <li>Nodes (N): <span id="diag-nodes">0</span></li>
-                                <li>Laplacian (L): <span id="diag-laplacian">0 x 0</span></li>
-                                <li>Precision: 64-bit IEEE 754</li>
-                                <li class="mt-2 text-[#2D5A27] font-sans italic font-medium">✓ Eigen decomposition optimal cut threshold achieved.</li>
-                            </ul>
-                        </div>
+                    <!-- Diagnostics -->
+                    <div class="p-6 bg-[#F3F3F1] border-l-2 border-[#121212] mt-8">
+                        <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase mb-3">Diagnostics</h3>
+                        <ul class="text-[13px] space-y-1 font-mono text-[#444]">
+                            <li>Nodes (N): <span id="diag-nodes">0</span></li>
+                            <li>Laplacian (L): <span id="diag-laplacian">0 x 0</span></li>
+                            <li>Segments: <span id="diag-segments">0</span></li>
+                            <li>Precision: 64-bit IEEE 754</li>
+                            <li class="mt-2 text-[#2D5A27] font-sans italic font-medium">✓ Eigen decomposition optimal cut threshold achieved.</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -212,27 +298,88 @@
         const imagePreview  = document.getElementById('image-preview');
         const uploadArea    = document.getElementById('upload-area');
         const sourceImage   = document.getElementById('source-image');
-        const processButton = document.getElementById('process-btn');
-        const emptyState    = document.getElementById('empty-state');
-        const resultsState  = document.getElementById('results-state');
+        const processBtn = document.getElementById('process-btn');
         const statusText    = document.getElementById('status-text');
+        const stopBtn       = document.getElementById('stop-btn');
+
+        const canvasConfigs = [
+            { canvas: 'canvas-nodes',    pending: 'pending-nodes',    overlay: 'overlay-nodes' },
+            { canvas: 'canvas-segments', pending: 'pending-segments', overlay: 'overlay-segments' },
+            { canvas: 'canvas-heatmap',  pending: 'pending-heatmap',  overlay: 'overlay-heatmap' },
+            { canvas: 'canvas-fg',       pending: 'pending-fg',       overlay: 'overlay-fg' },
+        ];
 
         let currentImageDataURL = null;
+        let lastResult = null;
+        let abortController = null;
+
+        function showPendings() {
+            canvasConfigs.forEach(c => {
+                document.getElementById(c.canvas).classList.add('hidden');
+                document.getElementById(c.pending).classList.remove('hidden');
+                document.getElementById(c.overlay).classList.add('hidden');
+            });
+        }
+
+        function showOverlays() {
+            canvasConfigs.forEach(c => {
+                document.getElementById(c.overlay).classList.remove('hidden');
+                document.getElementById(c.overlay).classList.add('flex');
+            });
+        }
+
+        function hideOverlays() {
+            canvasConfigs.forEach(c => {
+                document.getElementById(c.overlay).classList.add('hidden');
+                document.getElementById(c.overlay).classList.remove('flex');
+            });
+        }
+
+        // --- Client-side invert: re-renders foreground instantly ---
+        function storeResult(data) {
+            const w = data.width, h = data.height;
+            const mask = [];
+            for (let i = 3; i < data.fg_rgba.length; i += 4) {
+                mask.push(data.fg_rgba[i] > 0 ? 1 : 0);
+            }
+            lastResult = { width: w, height: h, nodesRgba: data.nodes_rgba, mask };
+        }
+
+        function renderForeground(invert) {
+            if (!lastResult) return;
+            const { width, height, nodesRgba, mask } = lastResult;
+            const rgba = [];
+            for (let i = 0; i < mask.length; i++) {
+                const pi = i * 4;
+                const isFg = invert ? 1 - mask[i] : mask[i];
+                rgba.push(
+                    nodesRgba[pi], nodesRgba[pi + 1], nodesRgba[pi + 2],
+                    isFg ? 255 : 0
+                );
+            }
+            renderRGBA('canvas-fg', 'pending-fg', rgba, width, height);
+            document.getElementById('pending-fg').classList.add('hidden');
+            document.getElementById('canvas-fg').classList.remove('hidden');
+        }
+
+        document.getElementById('invert-mask').addEventListener('change', (e) => {
+            renderForeground(e.target.checked);
+        });
 
         // --- Image upload ---
         inputFiles.forEach(input => {
             input.addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+                lastResult = null;
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     currentImageDataURL = event.target.result;
                     sourceImage.src = currentImageDataURL;
                     uploadArea.classList.add('hidden');
                     imagePreview.classList.remove('hidden');
-                    processButton.disabled = false;
-                    emptyState.classList.remove('hidden');
-                    resultsState.classList.add('hidden');
+                    processBtn.disabled = false;
+                    showPendings();
                     statusText.innerText = 'Ready';
                     statusText.className = 'text-[#666] font-bold';
                 };
@@ -241,30 +388,33 @@
         });
 
         // --- Canvas helpers ---
-        function renderRGBA(canvasId, rgbaFlat, w, h) {
+        function renderRGBA(canvasId, pendingId, rgbaFlat, w, h) {
             const canvas = document.getElementById(canvasId);
             canvas.width  = w;
             canvas.height = h;
             const ctx  = canvas.getContext('2d');
             const data = new Uint8ClampedArray(rgbaFlat);
             ctx.putImageData(new ImageData(data, w, h), 0, 0);
+            canvas.classList.remove('hidden');
+            document.getElementById(pendingId).classList.add('hidden');
         }
 
         // --- Diagnostics update ---
         function updateDiagnostics(data) {
             document.getElementById('diag-nodes').innerText     = data.nodes;
             document.getElementById('diag-laplacian').innerText = `${data.nodes} × ${data.nodes}`;
+            document.getElementById('diag-segments').innerText  = data.num_segments;
 
-            // Inject extra diagnostics below the existing list if not already there
             let extra = document.getElementById('diag-extra');
             if (!extra) {
                 extra = document.createElement('li');
                 extra.id = 'diag-extra';
                 extra.className = 'mt-2 space-y-1';
-                document.querySelector('#results-state ul').appendChild(extra);
+                document.querySelector('.mt-8 ul').appendChild(extra);
             }
             extra.innerHTML = `
                 <span class="block">Edges: ${data.edges}</span>
+                <span class="block">Segments: ${data.num_segments}</span>
                 <span class="block">NCut score: ${data.ncut_score.toFixed(6)}</span>
                 <span class="block">Threshold: ${data.threshold.toFixed(6)}</span>
                 <span class="block">Elapsed: ${data.elapsed_ms} ms</span>
@@ -272,31 +422,48 @@
             `;
         }
 
+        // --- Stop button ---
+        stopBtn.addEventListener('click', () => {
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+        });
+
         // --- Process button ---
-        processButton.addEventListener('click', async () => {
+        processBtn.addEventListener('click', async () => {
             if (!currentImageDataURL) return;
 
-            const sigmaI    = parseFloat(document.getElementById('sigma-i').value) / 10.0;
-            const sigmaX    = parseFloat(document.getElementById('sigma-x').value) / 10.0;
+            abortController = new AbortController();
+
+            const colorMetric = document.getElementById('color-metric').value;
+            const sigmaI     = parseFloat(document.getElementById('sigma-i').value) / 100.0;
+            const sigmaX     = parseFloat(document.getElementById('sigma-x').value) / 10.0;
+            const radius     = parseInt(document.getElementById('radius').value);
             const resolution = parseInt(document.getElementById('resolution').value);
 
             statusText.innerText = 'Computing…';
             statusText.className = 'text-[#121212] font-bold';
-            processButton.disabled = true;
-            emptyState.classList.add('hidden');
-            resultsState.classList.add('hidden');
+            processBtn.disabled = true;
+            processBtn.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
+            showOverlays();
 
             try {
                 const response = await fetch('/api/segment', {
                     method:  'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        image:      currentImageDataURL,
-                        sigma_i:    sigmaI,
-                        sigma_x:    sigmaX,
-                        resolution: resolution,
+                        image:        currentImageDataURL,
+                        sigma_i:      sigmaI,
+                        sigma_x:      sigmaX,
+                        radius:       radius,
+                        resolution:   resolution,
+                        color_metric: colorMetric,
                     }),
+                    signal: abortController.signal,
                 });
+                abortController = null;
 
                 if (!response.ok) {
                     const err = await response.json();
@@ -306,25 +473,32 @@
                 const data = await response.json();
                 const { width: w, height: h } = data;
 
-                // Render all four canvases
-                renderRGBA('canvas-nodes',     data.nodes_rgba,     w, h);
-                renderRGBA('canvas-bisection', data.bisection_rgba, w, h);
-                renderRGBA('canvas-heatmap',   data.heatmap_rgba,   w, h);
-                renderRGBA('canvas-fg',        data.fg_rgba,         w, h);
+                renderRGBA('canvas-nodes',    'pending-nodes',    data.nodes_rgba,         w, h);
+                renderRGBA('canvas-segments', 'pending-segments', data.segmentation_rgba, w, h);
+                renderRGBA('canvas-heatmap',  'pending-heatmap',  data.heatmap_rgba,      w, h);
 
+                storeResult(data);
+                renderForeground(document.getElementById('invert-mask').checked);
                 updateDiagnostics(data);
+                hideOverlays();
 
-                resultsState.classList.remove('hidden');
                 statusText.innerText = 'Analysis Complete';
                 statusText.className = 'text-[#2D5A27] font-bold';
 
             } catch (err) {
-                statusText.innerText = `Error: ${err.message}`;
-                statusText.className = 'text-red-600 font-bold';
-                emptyState.classList.remove('hidden');
+                if (err.name === 'AbortError') {
+                    statusText.innerText = 'Cancelled';
+                    statusText.className = 'text-[#999] font-bold';
+                } else {
+                    statusText.innerText = `Error: ${err.message}`;
+                    statusText.className = 'text-red-600 font-bold';
+                }
+                hideOverlays();
                 console.error(err);
             } finally {
-                processButton.disabled = false;
+                processBtn.disabled = false;
+                processBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
             }
         });
     </script>

@@ -2,7 +2,7 @@ import numpy as np
 
 from scipy.sparse import csr_matrix
 from scipy.sparse import diags
-from scipy.sparse.linalg import eigsh
+from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 
 def validate_solver_inputs(values, col_indices, row_pointers, d, x):
@@ -79,11 +79,39 @@ def validate_solver_inputs(values, col_indices, row_pointers, d, x):
             )
 
 
+def d_inverse_w_product(values, col_indices, row_pointers, d, x):
+    validate_solver_inputs(values, col_indices, row_pointers, d, x)
+
+    num_nodes = len(d)
+    result = np.zeros(num_nodes, dtype=np.float64)
+
+    for i in range(num_nodes):
+        if d[i] == 0.0:
+            continue
+        start = row_pointers[i]
+        end = row_pointers[i + 1]
+        wx = 0.0
+        for idx in range(start, end):
+            j = col_indices[idx]
+            wx += values[idx] * x[j]
+        result[i] = wx / d[i]
+
+    return result
+
+
+def d_weighted_norm(x, d):
+    x = np.asarray(x, dtype=np.float64)
+    d = np.asarray(d, dtype=np.float64)
+    return float(np.sqrt(np.sum(d * x ** 2)))
+
+
 def find_fiedler_vector(
     values,
     col_indices,
     row_pointers,
-    d
+    d,
+    max_iter=5000,
+    tol=1e-5,
 ):
     """
     Solve the Shi-Malik generalized eigenproblem:
@@ -93,6 +121,12 @@ def find_fiedler_vector(
     and return the Fiedler vector
     (second smallest eigenvector).
     """
+
+    if max_iter <= 0:
+        raise ValueError("max_iter must be positive.")
+
+    if tol <= 0:
+        raise ValueError("tol must be positive.")
 
     validate_solver_inputs(
         values,
@@ -122,15 +156,32 @@ def find_fiedler_vector(
 
     L = D - W
 
-    eigenvalues, eigenvectors = eigsh(
-        A=L,
-        M=D,
-        k=2,
-        which="SM"
-    )
+    try:
+        eigenvalues, eigenvectors = eigsh(
+            A=L,
+            M=D,
+            k=2,
+            which="SM",
+            maxiter=max_iter,
+            tol=tol,
+        )
+    except ArpackNoConvergence:
+        eigenvalues, eigenvectors = eigsh(
+            A=L,
+            M=D,
+            k=2,
+            which="SM",
+            maxiter=max_iter * 2,
+            tol=tol,
+        )
 
     fiedler_value = eigenvalues[1]
     fiedler_vector = eigenvectors[:, 1]
+
+    # Paper: thresholding is on y₁ directly. Normalize sign so the positive
+    # lobe is consistently foreground (eigsh may return either orientation).
+    if fiedler_vector.mean() < 0:
+        fiedler_vector = -fiedler_vector
 
     print(
         f"Fiedler eigenvalue: "

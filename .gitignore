@@ -40,3 +40,15 @@ Thumbs.db
 
 #testing
 .pytest_cache/
+
+#testfiles
+ncut/compute_binary_partition.py
+
+backend_frontend_integration.md
+IMPLEMENTATION_PLAN.md
+OUTPUT_GUIDE.md
+ui.md
+system_info.md
+*pdf
+.pdf
+.png

@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from scipy.sparse import csr_matrix
+from ncut.color import ColorMetric, extract_pixel_feature, intensity_distance_sq
 
 def validate_graph_parameters(image, sigma_i, sigma_x, radius):
     if image.ndim not in (2, 3):
@@ -22,15 +23,36 @@ def calculate_intensity_distance_sq(p1, p2):
     diff = p1 - p2
     return np.sum(diff ** 2)
 
-def build_graph_structures(image, sigma_i, sigma_x, radius):
+def build_graph_structures(
+    image: np.ndarray,
+    sigma_i: float,
+    sigma_x: float,
+    radius: int,
+    color_metric: ColorMetric = ColorMetric.GRAYSCALE,
+    doog_features: np.ndarray | None = None,
+) -> tuple:
+    """
+    Build graph adjacency structure variables for Normalized Cuts.
 
+    Args:
+        image: Input image array.
+        sigma_i: Intensity kernel parameter.
+        sigma_x: Spatial kernel parameter.
+        radius: Spatial neighborhood radius.
+        color_metric: Color space feature vector to use.
+        doog_features: Precomputed DOOG texture features.
+
+    Returns:
+        A tuple (values, col_indices, row_pointers, degree_vector) representing the graph.
+    """
     validate_graph_parameters(image, sigma_i, sigma_x, radius)
 
     height, width = image.shape[:2]
     num_pixels = height * width
 
-    two_sigma_i_sq = 2.0 * (sigma_i ** 2)
-    two_sigma_x_sq = 2.0 * (sigma_x ** 2)
+    # Paper Eq. 11: denominator is σ², NOT 2σ².
+    sigma_i_sq = sigma_i ** 2
+    sigma_x_sq = sigma_x ** 2
 
     radius_sq = radius ** 2
 
@@ -69,10 +91,12 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
                     if dist_x_sq >= radius_sq:
                         continue
 
-                    pixel_j_intensity = image[y2, x2]
-                    dist_i_sq = calculate_intensity_distance_sq(pixel_i_intensity, pixel_j_intensity)
+                    feature_i = extract_pixel_feature(image, y1, x1, color_metric, doog_features)
+                    feature_j = extract_pixel_feature(image, y2, x2, color_metric, doog_features)
+                    dist_i_sq = intensity_distance_sq(feature_i, feature_j, color_metric)
 
-                    weight = math.exp(-dist_i_sq / two_sigma_i_sq) * math.exp(-dist_x_sq / two_sigma_x_sq)
+                    # Paper Eq. 11: w(i,j) = exp(-||F(i)-F(j)||²/σ_I²) * exp(-||X(i)-X(j)||²/σ_X²)
+                    weight = math.exp(-dist_i_sq / sigma_i_sq) * math.exp(-dist_x_sq / sigma_x_sq)
 
                     values.append(weight)
                     col_indices.append(j)
@@ -90,8 +114,36 @@ def build_graph_structures(image, sigma_i, sigma_x, radius):
             )
 
 
-def build_weight_matrix(image, sigma_i, sigma_x, radius):
-    values, col_indices, row_pointers, degree_vector = build_graph_structures(image, sigma_i, sigma_x, radius)
+def build_weight_matrix(
+    image: np.ndarray,
+    sigma_i: float,
+    sigma_x: float,
+    radius: int,
+    color_metric: ColorMetric = ColorMetric.GRAYSCALE,
+    doog_features: np.ndarray | None = None,
+) -> tuple:
+    """
+    Build the sparse weight matrix and degree vector for Normalized Cuts.
+
+    Args:
+        image: Input image array.
+        sigma_i: Intensity kernel parameter.
+        sigma_x: Spatial kernel parameter.
+        radius: Spatial neighborhood radius.
+        color_metric: Color space feature vector to use.
+        doog_features: Precomputed DOOG texture features.
+
+    Returns:
+        A tuple (weight_matrix, degree_vector) representing the graph.
+    """
+    values, col_indices, row_pointers, degree_vector = build_graph_structures(
+        image,
+        sigma_i,
+        sigma_x,
+        radius,
+        color_metric=color_metric,
+        doog_features=doog_features,
+    )
 
     num_pixels = len(degree_vector)
 

@@ -103,6 +103,45 @@
                     </div>
                 </div>
 
+                <!-- EXECUTION BACKEND -->
+                <div class="flex flex-col gap-2">
+                    <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Execution Backend</label>
+                    <div class="grid grid-cols-2 border border-gray-200 bg-[#fbfbfb] p-1 gap-1">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="backend" value="cpu" class="peer sr-only" checked />
+                            <span class="flex items-center justify-center gap-2 px-3 py-2 text-[11px] font-bold tracking-widest uppercase text-gray-500 peer-checked:bg-gray-900 peer-checked:text-white transition-colors">
+                                <i data-lucide="cpu" class="w-4 h-4"></i>
+                                CPU
+                            </span>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="backend" value="gpu" class="peer sr-only" />
+                            <span class="flex items-center justify-center gap-2 px-3 py-2 text-[11px] font-bold tracking-widest uppercase text-gray-500 peer-checked:bg-gray-900 peer-checked:text-white transition-colors">
+                                <i data-lucide="zap" class="w-4 h-4"></i>
+                                GPU
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- SEGMENTATION MODE -->
+                <div class="flex flex-col gap-2">
+                    <label for="segmentation-mode" class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Segmentation Mode</label>
+                    <select id="segmentation-mode" class="w-full border border-gray-200 bg-[#fbfbfb] p-2 text-[13px] font-serif text-gray-900 appearance-none focus:outline-none">
+                        <option value="binary" selected>Fast Foreground</option>
+                        <option value="recursive">Recursive Multi-Segment</option>
+                    </select>
+                </div>
+
+                <!-- FOREGROUND MODE -->
+                <div class="flex flex-col gap-2">
+                    <label for="foreground-mode" class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Foreground Mode</label>
+                    <select id="foreground-mode" class="w-full border border-gray-200 bg-[#fbfbfb] p-2 text-[13px] font-serif text-gray-900 appearance-none focus:outline-none">
+                        <option value="auto" selected>Auto Object</option>
+                        <option value="legacy">Original Mask</option>
+                    </select>
+                </div>
+
                 <!-- CUT THRESHOLD PERCENTILE -->
                 <div class="flex flex-col gap-2">
                     <div class="flex justify-between items-center">
@@ -312,6 +351,46 @@
         let currentImageDataURL = null;
         let lastResult = null;
         let abortController = null;
+        const backendWarmPromises = {};
+
+        async function warmBackend(backend) {
+            if (!backendWarmPromises[backend]) {
+                backendWarmPromises[backend] = fetch('/api/warmup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backend }),
+                }).then(async response => {
+                    if (!response.ok) throw new Error(`${backend.toUpperCase()} warmup failed`);
+                    return response.json();
+                }).catch(err => {
+                    delete backendWarmPromises[backend];
+                    throw err;
+                });
+            }
+            return backendWarmPromises[backend];
+        }
+
+        warmBackend('cpu').catch(() => {});
+
+        document.querySelectorAll('input[name="backend"]').forEach(input => {
+            input.addEventListener('change', () => {
+                if (!input.checked) return;
+                const backend = input.value;
+                statusText.innerText = `Warming ${backend.toUpperCase()}...`;
+                statusText.className = 'text-[#121212] font-bold';
+                warmBackend(backend)
+                    .then(data => {
+                        statusText.innerText = data.warmed
+                            ? `${backend.toUpperCase()} Ready · Warmup ${data.warmup_ms} ms`
+                            : `${backend.toUpperCase()} Unavailable`;
+                        statusText.className = data.warmed ? 'text-[#2D5A27] font-bold' : 'text-red-600 font-bold';
+                    })
+                    .catch(err => {
+                        statusText.innerText = `${backend.toUpperCase()} Warmup Error: ${err.message}`;
+                        statusText.className = 'text-red-600 font-bold';
+                    });
+            });
+        });
 
         function showPendings() {
             canvasConfigs.forEach(c => {
@@ -417,6 +496,12 @@
                 <span class="block">Segments: ${data.num_segments}</span>
                 <span class="block">NCut score: ${data.ncut_score.toFixed(6)}</span>
                 <span class="block">Threshold: ${data.threshold.toFixed(6)}</span>
+                <span class="block">Backend: ${data.backend.toUpperCase()}</span>
+                <span class="block">Mode: ${data.segmentation_mode}</span>
+                <span class="block">Foreground: ${data.foreground_strategy || 'mask'}</span>
+                <span class="block">Graph: ${(data.timings?.graph_ms ?? 0).toFixed(1)} ms</span>
+                <span class="block">Eigen: ${(data.timings?.eigensolver_ms ?? 0).toFixed(1)} ms</span>
+                <span class="block">Partition: ${(data.timings?.partition_ms ?? 0).toFixed(1)} ms</span>
                 <span class="block">Elapsed: ${data.elapsed_ms} ms</span>
                 <span class="block text-[11px]">Resolution: ${data.width}×${data.height} px</span>
             `;
@@ -441,8 +526,11 @@
             const sigmaX     = parseFloat(document.getElementById('sigma-x').value) / 10.0;
             const radius     = parseInt(document.getElementById('radius').value);
             const resolution = parseInt(document.getElementById('resolution').value);
+            const backend    = document.querySelector('input[name="backend"]:checked').value;
+            const segmentationMode = document.getElementById('segmentation-mode').value;
+            const foregroundMode = document.getElementById('foreground-mode').value;
 
-            statusText.innerText = 'Computing…';
+            statusText.innerText = `Warming ${backend.toUpperCase()}...`;
             statusText.className = 'text-[#121212] font-bold';
             processBtn.disabled = true;
             processBtn.classList.add('hidden');
@@ -450,6 +538,9 @@
             showOverlays();
 
             try {
+                await warmBackend(backend);
+                statusText.innerText = `Computing on ${backend.toUpperCase()}...`;
+
                 const response = await fetch('/api/segment', {
                     method:  'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -460,6 +551,9 @@
                         radius:       radius,
                         resolution:   resolution,
                         color_metric: colorMetric,
+                        backend:      backend,
+                        segmentation_mode: segmentationMode,
+                        foreground_mode: foregroundMode,
                     }),
                     signal: abortController.signal,
                 });
@@ -482,7 +576,10 @@
                 updateDiagnostics(data);
                 hideOverlays();
 
-                statusText.innerText = 'Analysis Complete';
+                const graphMs = data.timings?.graph_ms;
+                statusText.innerText = graphMs && data.backend === 'gpu'
+                    ? `GPU Complete · Graph ${graphMs.toFixed(1)} ms`
+                    : 'Analysis Complete';
                 statusText.className = 'text-[#2D5A27] font-bold';
 
             } catch (err) {

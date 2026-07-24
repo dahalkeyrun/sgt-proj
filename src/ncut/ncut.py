@@ -155,6 +155,7 @@ def find_fiedler_vector(
     )
 
     L = D - W
+    v0 = np.linspace(-1.0, 1.0, num_pixels, dtype=np.float64)
 
     try:
         eigenvalues, eigenvectors = eigsh(
@@ -164,6 +165,7 @@ def find_fiedler_vector(
             which="SM",
             maxiter=max_iter,
             tol=tol,
+            v0=v0,
         )
     except ArpackNoConvergence:
         eigenvalues, eigenvectors = eigsh(
@@ -173,6 +175,7 @@ def find_fiedler_vector(
             which="SM",
             maxiter=max_iter * 2,
             tol=tol,
+            v0=v0,
         )
 
     fiedler_value = eigenvalues[1]

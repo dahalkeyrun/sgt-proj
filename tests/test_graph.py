@@ -5,6 +5,7 @@ import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
+from ncut.backend import is_gpu_available
 from ncut.graph import build_graph_structures, build_weight_matrix
 
 
@@ -113,9 +114,58 @@ def run_csr_matrix_check():
     assert np.allclose(weight_matrix.sum(axis=1).A1, degree_vector), "Error: degree vector must equal row sums."
 
 
+def run_backend_dispatch_check():
+    image = np.zeros((3, 3), dtype=np.float64)
+    cpu_graph = build_graph_structures(
+        image,
+        sigma_i=1.0,
+        sigma_x=2.0,
+        radius=2,
+        backend="cpu",
+    )
+    default_graph = build_graph_structures(
+        image,
+        sigma_i=1.0,
+        sigma_x=2.0,
+        radius=2,
+    )
+
+    assert np.array_equal(cpu_graph[0], default_graph[0])
+    assert np.array_equal(cpu_graph[1], default_graph[1])
+    assert np.array_equal(cpu_graph[2], default_graph[2])
+    assert np.allclose(cpu_graph[3], default_graph[3])
+
+    if is_gpu_available():
+        gpu_graph = build_graph_structures(
+            image,
+            sigma_i=1.0,
+            sigma_x=2.0,
+            radius=2,
+            backend="gpu",
+        )
+        assert len(gpu_graph[0]) == len(cpu_graph[0])
+        assert len(gpu_graph[1]) == len(cpu_graph[1])
+        assert len(gpu_graph[2]) == len(cpu_graph[2])
+        assert gpu_graph[3].shape == cpu_graph[3].shape
+    else:
+        try:
+            build_graph_structures(
+                image,
+                sigma_i=1.0,
+                sigma_x=2.0,
+                radius=2,
+                backend="gpu",
+            )
+        except (RuntimeError, NotImplementedError) as exc:
+            assert "GPU backend" in str(exc)
+        else:
+            raise AssertionError("Expected GPU backend to raise when unavailable.")
+
+
 if __name__ == "__main__":
     run_isolated_graph_check()
     run_validation_checks()
     run_self_edge_check()
     run_csr_matrix_check()
+    run_backend_dispatch_check()
     print("\nSTATUS: GRAPH MODULE VERIFIED")

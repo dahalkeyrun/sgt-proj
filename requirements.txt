@@ -3,3 +3,6 @@ scipy==1.11.3
 pillow==11.1.0
 matplotlib==3.10.1
 flask==3.1.0
+
+# Optional GPU support:
+cupy-cuda12x

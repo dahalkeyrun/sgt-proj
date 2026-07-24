@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.sparse import issparse
 
+from ncut.backend import Backend, to_numpy
+
 
 def validate_partition_inputs(W, fiedler_vector):
 
@@ -121,6 +123,63 @@ def compute_ncut(
     return float(ncut_value)
 
 
+def find_exact_ncut_threshold(W, fiedler_vector):
+    """
+    Sweep every non-degenerate split induced by the sorted Fiedler vector.
+
+    This follows the Shi-Malik thresholding step more closely than sampling
+    evenly spaced values, while avoiding repeated sparse submatrix slicing.
+    """
+    sorted_indices = np.argsort(fiedler_vector, kind="mergesort")
+    sorted_values = fiedler_vector[sorted_indices]
+    num_nodes = len(sorted_values)
+
+    split_positions = np.flatnonzero(sorted_values[:-1] < sorted_values[1:]) + 1
+    if len(split_positions) == 0:
+        raise ValueError(
+            "Failed to find a valid NCut threshold."
+        )
+
+    ranks = np.empty(num_nodes, dtype=np.int32)
+    ranks[sorted_indices] = np.arange(num_nodes, dtype=np.int32)
+
+    degree_vector = np.asarray(W.sum(axis=1)).ravel().astype(np.float64)
+    prefix_assoc = np.concatenate(
+        ([0.0], np.cumsum(degree_vector[sorted_indices]))
+    )
+    total_assoc = prefix_assoc[-1]
+
+    coo = W.tocoo()
+    row_ranks = ranks[coo.row]
+    col_ranks = ranks[coo.col]
+    forward = row_ranks > col_ranks
+
+    cut_delta = np.zeros(num_nodes + 1, dtype=np.float64)
+    np.add.at(cut_delta, col_ranks[forward] + 1, coo.data[forward])
+    np.add.at(cut_delta, row_ranks[forward] + 1, -coo.data[forward])
+    cut_values = np.cumsum(cut_delta)
+
+    assoc_b = prefix_assoc[split_positions]
+    assoc_a = total_assoc - assoc_b
+    cuts = cut_values[split_positions]
+
+    valid = (assoc_a > 0.0) & (assoc_b > 0.0)
+    if not np.any(valid):
+        raise ValueError(
+            "Failed to find a valid NCut threshold."
+        )
+
+    ncut_values = np.full(len(split_positions), np.inf, dtype=np.float64)
+    ncut_values[valid] = cuts[valid] / assoc_a[valid] + cuts[valid] / assoc_b[valid]
+
+    best_index = int(np.argmin(ncut_values))
+    best_split = split_positions[best_index]
+
+    return float(
+        0.5 * (sorted_values[best_split - 1] + sorted_values[best_split])
+    )
+
+
 def find_threshold(
     W,
     fiedler_vector,
@@ -146,6 +205,8 @@ def find_threshold(
         )
 
     if method == "ncut":
+        return find_exact_ncut_threshold(W, fiedler_vector)
+
         y_min = float(fiedler_vector.min())
         y_max = float(fiedler_vector.max())
 
@@ -203,12 +264,20 @@ def find_threshold(
 def partition_graph(
     W,
     fiedler_vector,
-    threshold_method="ncut"
+    threshold_method="ncut",
+    backend="cpu",
 ):
     """
     Perform spectral partitioning
     using the Fiedler vector.
     """
+    backend = Backend.from_string(backend)
+    fiedler_vector = np.asarray(to_numpy(fiedler_vector), dtype=np.float64)
+
+    if backend == Backend.GPU:
+        # The current implementation keeps partitioning on the CPU side.
+        # This still accepts a GPU-selected backend and converts inputs to NumPy.
+        pass
 
     validate_partition_inputs(
         W,

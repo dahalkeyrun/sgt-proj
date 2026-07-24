@@ -93,6 +93,16 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+Optional GPU support:
+
+- This repository is designed to support CPU and GPU backends.
+- The current implementation supports `backend="cpu"` by default.
+- To enable GPU execution in future work, install a CUDA-enabled CuPy package, for example:
+
+```powershell
+pip install cupy-cuda12x
+```
+
 Current pinned dependencies:
 
 ```text

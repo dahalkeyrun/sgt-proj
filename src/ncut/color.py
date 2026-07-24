@@ -25,6 +25,8 @@ from typing import Tuple
 
 import numpy as np
 
+from ncut.backend import Backend, get_array_module
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -284,11 +286,105 @@ def extract_pixel_feature(
     raise ValueError(f"Unhandled metric: {metric}")
 
 
+def build_feature_map(
+    image: np.ndarray,
+    color_metric: ColorMetric,
+    doog_features: np.ndarray | None = None,
+    backend: Backend | str = Backend.CPU,
+) -> np.ndarray:
+    """
+    Build a full-image feature map for the given color metric.
+
+    Returns:
+        Feature map of shape (H, W, C) where C is 1 for GRAYSCALE,
+        3 for RGB/HSV, or K for TEXTURE.
+    """
+    backend = Backend.from_string(backend)
+    xp = get_array_module(backend)
+
+    image_arr = xp.asarray(image)
+
+    if color_metric == ColorMetric.GRAYSCALE:
+        if image_arr.ndim == 2:
+            luma = image_arr.astype(xp.float64)
+        else:
+            img = image_arr.astype(xp.float64)
+            if img.max() > 1.0:
+                img = img / 255.0
+            luma = 0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2]
+        return luma[..., xp.newaxis]
+
+    if color_metric == ColorMetric.RGB:
+        if image_arr.ndim != 3 or image_arr.shape[2] < 3:
+            raise ValueError(
+                "RGB metric requires a 3-channel RGB image. "
+                f"Got image.shape = {image_arr.shape}"
+            )
+        img = image_arr.astype(xp.float64)
+        if img.max() > 1.0:
+            img = img / 255.0
+        return img[..., :3]
+
+    if color_metric == ColorMetric.HSV:
+        if image_arr.ndim != 3 or image_arr.shape[2] < 3:
+            raise ValueError(
+                "HSV metric requires a 3-channel RGB image. "
+                f"Got image.shape = {image_arr.shape}"
+            )
+
+        img = image_arr.astype(xp.float64)
+        if img.max() > 1.0:
+            img = img / 255.0
+
+        r = img[..., 0]
+        g = img[..., 1]
+        b = img[..., 2]
+
+        c_max = xp.maximum(xp.maximum(r, g), b)
+        c_min = xp.minimum(xp.minimum(r, g), b)
+        delta = c_max - c_min
+
+        v = c_max
+        s = xp.where(c_max == 0.0, 0.0, delta / xp.where(c_max == 0.0, 1.0, c_max))
+
+        safe_delta = xp.where(delta == 0.0, 1.0, delta)
+        h_r = ((g - b) / safe_delta) % 6.0
+        h_g = (b - r) / safe_delta + 2.0
+        h_b = (r - g) / safe_delta + 4.0
+
+        h = xp.where(delta == 0.0, 0.0,
+            xp.where(c_max == r, h_r,
+            xp.where(c_max == g, h_g, h_b)))
+
+        h = h * math.pi / 3.0
+        h = xp.where(h < 0.0, h + 2.0 * math.pi, h)
+
+        f0 = v
+        f1 = v * s * xp.sin(h)
+        f2 = v * s * xp.cos(h)
+        return xp.stack([f0, f1, f2], axis=-1)
+
+    if color_metric == ColorMetric.TEXTURE:
+        if doog_features is None:
+            raise ValueError(
+                "TEXTURE metric requires pre-computed doog_features array. "
+                "Pass the DOOG feature map as doog_features=..."
+            )
+        feature_map = xp.asarray(doog_features)
+        if feature_map.ndim != 3:
+            raise ValueError(
+                "doog_features must be a 3D array of shape (H, W, K)."
+            )
+        return feature_map
+
+    raise ValueError(f"Unhandled metric: {color_metric}")
+
+
 # ── Sigma guidance ────────────────────────────────────────────────────────────
 
 RECOMMENDED_SIGMA_I: dict[ColorMetric, float] = {
     ColorMetric.GRAYSCALE : 0.1,
-    ColorMetric.HSV       : 0.1,
+    ColorMetric.HSV       : 0.01,
     ColorMetric.RGB       : 0.1,
     ColorMetric.TEXTURE   : 0.1,
 }

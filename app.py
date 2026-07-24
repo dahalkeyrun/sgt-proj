@@ -16,9 +16,61 @@ from ncut.graph import build_weight_matrix
 from ncut.ncut import find_fiedler_vector
 from ncut.partition import partition_graph
 from ncut.recursive import recursive_partition
-from ncut.color import ColorMetric
+from ncut.color import ColorMetric, RECOMMENDED_SIGMA_I
+from ncut.backend import Backend, warm_gpu_backend
+from ncut.timing import StageTimer
 
 app = Flask(__name__)
+_warmed_segmentation_backends: set[Backend] = set()
+
+
+def _warm_segmentation_path(backend: Backend) -> bool:
+    if backend in _warmed_segmentation_backends:
+        return True
+
+    if backend == Backend.GPU and not warm_gpu_backend():
+        return False
+
+    image = np.linspace(0.0, 1.0, 64, dtype=np.float64).reshape((8, 8))
+    weight_matrix, degree_vector = build_weight_matrix(
+        image,
+        sigma_i=0.1,
+        sigma_x=4.0,
+        radius=3,
+        backend=backend,
+    )
+    fiedler_vector = find_fiedler_vector(
+        weight_matrix.data,
+        weight_matrix.indices,
+        weight_matrix.indptr,
+        degree_vector,
+        max_iter=200,
+        tol=1e-3,
+    )
+    partition_graph(
+        weight_matrix,
+        fiedler_vector,
+        threshold_method="ncut",
+        backend=backend,
+    )
+    _warmed_segmentation_backends.add(backend)
+    return True
+
+
+@app.route("/api/warmup", methods=["POST"])
+def warmup():
+    data = request.get_json(silent=True) or {}
+    backend = Backend.from_string(data.get("backend", "cpu"))
+
+    start = time.perf_counter()
+    warmed = _warm_segmentation_path(backend)
+    warmup_ms = (time.perf_counter() - start) * 1000.0
+
+    return jsonify({
+        "backend": backend.value,
+        "warmed": bool(warmed),
+        "warmup_ms": round(warmup_ms, 1),
+    })
 
 
 def _decode_base64_image(data_url: str) -> pil.Image:
@@ -176,6 +228,158 @@ def _labels_to_rgba(labels, height, width):
 
     return rgba
 
+
+def _fiedler_to_heatmap_rgb_fast(fiedler_vector: np.ndarray, height: int, width: int) -> list:
+    grid = fiedler_vector.reshape((height, width))
+    v_min, v_max = grid.min(), grid.max()
+    flat = ((grid - v_min) / (v_max - v_min + 1e-8)).ravel()
+    low = flat < 0.5
+    rgba = np.empty((height * width, 4), dtype=np.uint8)
+
+    t_low = flat[low] * 2.0
+    rgba[low, 0] = np.clip(t_low * 255, 0, 255).astype(np.uint8)
+    rgba[low, 1] = np.clip(t_low * 255, 0, 255).astype(np.uint8)
+    rgba[low, 2] = 255
+
+    t_high = (flat[~low] - 0.5) * 2.0
+    rgba[~low, 0] = 255
+    rgba[~low, 1] = np.clip((1.0 - t_high) * 255, 0, 255).astype(np.uint8)
+    rgba[~low, 2] = np.clip((1.0 - t_high) * 255, 0, 255).astype(np.uint8)
+    rgba[:, 3] = 255
+    return rgba.ravel().tolist()
+
+
+def _image_to_rgba_fast(image: np.ndarray) -> list:
+    if image.ndim == 2:
+        gray = np.clip(image.reshape((-1,)) * 255, 0, 255).astype(np.uint8)
+        rgba = np.empty((gray.size, 4), dtype=np.uint8)
+        rgba[:, 0] = gray
+        rgba[:, 1] = gray
+        rgba[:, 2] = gray
+    else:
+        rgb = np.clip(image.reshape((-1, 3))[:, :3], 0, 255).astype(np.uint8)
+        rgba = np.empty((rgb.shape[0], 4), dtype=np.uint8)
+        rgba[:, :3] = rgb
+    rgba[:, 3] = 255
+    return rgba.ravel().tolist()
+
+
+def _foreground_rgba_fast(image: np.ndarray, mask: np.ndarray, height: int, width: int) -> list:
+    if image.ndim == 2:
+        gray = np.clip(image.reshape((-1,)) * 255, 0, 255).astype(np.uint8)
+        rgba = np.empty((height * width, 4), dtype=np.uint8)
+        rgba[:, 0] = gray
+        rgba[:, 1] = gray
+        rgba[:, 2] = gray
+    else:
+        rgb = np.clip(image.reshape((-1, 3))[:, :3], 0, 255).astype(np.uint8)
+        rgba = np.empty((height * width, 4), dtype=np.uint8)
+        rgba[:, :3] = rgb
+    rgba[:, 3] = mask.reshape((-1,)).astype(np.uint8) * 255
+    return rgba.ravel().tolist()
+
+
+def _border_mask(height: int, width: int) -> np.ndarray:
+    border = np.zeros((height, width), dtype=bool)
+    border[0, :] = True
+    border[-1, :] = True
+    border[:, 0] = True
+    border[:, -1] = True
+    return border.reshape((-1,))
+
+
+def _select_binary_foreground_mask(mask: np.ndarray, height: int, width: int) -> tuple[np.ndarray, str]:
+    mask = np.asarray(mask, dtype=bool).reshape((-1,))
+    border = _border_mask(height, width)
+
+    true_border = int(np.count_nonzero(mask & border))
+    false_border = int(np.count_nonzero((~mask) & border))
+
+    if true_border != false_border:
+        if true_border < false_border:
+            return mask, "binary_low_border_true"
+        return ~mask, "binary_low_border_false"
+
+    true_size = int(np.count_nonzero(mask))
+    false_size = mask.size - true_size
+    if true_size <= false_size:
+        return mask, "binary_smaller_true"
+    return ~mask, "binary_smaller_false"
+
+
+def _select_recursive_foreground_mask(label_map: np.ndarray, height: int, width: int) -> tuple[np.ndarray, int | None, str]:
+    labels = np.asarray(label_map, dtype=np.int32).reshape((-1,))
+    unique_labels = np.unique(labels)
+
+    if len(unique_labels) <= 1:
+        return np.ones(labels.shape, dtype=bool), None, "recursive_single_segment"
+
+    border = _border_mask(height, width)
+    border_counts = {
+        int(label): int(np.count_nonzero((labels == label) & border))
+        for label in unique_labels
+    }
+    sizes = {
+        int(label): int(np.count_nonzero(labels == label))
+        for label in unique_labels
+    }
+
+    background_label = max(
+        unique_labels,
+        key=lambda label: (border_counts[int(label)], sizes[int(label)]),
+    )
+    background_label = int(background_label)
+    return labels != background_label, background_label, "recursive_largest_border_segment"
+
+
+def _select_foreground_mask(
+    label_map: np.ndarray,
+    height: int,
+    width: int,
+    segmentation_mode: str,
+    foreground_mode: str,
+    top_mask: np.ndarray | None = None,
+) -> tuple[np.ndarray, int | None, str]:
+    labels = np.asarray(label_map, dtype=np.int32).reshape((-1,))
+
+    if foreground_mode == "legacy":
+        return labels == 1, 0, "legacy_label_1"
+
+    if segmentation_mode == "binary":
+        if top_mask is None:
+            top_mask = labels.astype(bool)
+        mask, strategy = _select_binary_foreground_mask(top_mask, height, width)
+        return mask, None, strategy
+
+    return _select_recursive_foreground_mask(labels, height, width)
+
+
+def _labels_to_rgba_fast(labels, height, width):
+    colors = np.array([
+        [230,25,75],
+        [60,180,75],
+        [255,225,25],
+        [0,130,200],
+        [245,130,48],
+        [145,30,180],
+        [70,240,240],
+        [240,50,230],
+        [210,245,60],
+        [250,190,190],
+        [0,128,128],
+        [230,190,255],
+        [170,110,40],
+        [255,250,200],
+        [128,0,0],
+        [170,255,195],
+    ], dtype=np.uint8)
+    rgb = colors[np.asarray(labels, dtype=np.int32) % len(colors)]
+    rgba = np.empty((height * width, 4), dtype=np.uint8)
+    rgba[:, :3] = rgb.reshape((-1, 3))
+    rgba[:, 3] = 255
+    return rgba.ravel().tolist()
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -202,8 +406,6 @@ def segment():
         nodes_rgba          : flat [r,g,b,a, ...] for the original (downscaled) image
         fg_rgba             : flat [r,g,b,a, ...] for the foreground extraction
     """
-    t0 = time.perf_counter()
-
     data = request.get_json(force=True)
     if not data or "image" not in data:
         return jsonify({"error": "No image data received."}), 400
@@ -222,11 +424,27 @@ def segment():
         return jsonify({"error": str(exc)}), 400
 
     try:
+        backend = Backend.from_string(data.get("backend", "cpu"))
+        segmentation_mode = str(data.get("segmentation_mode", "binary")).strip().lower()
+        if segmentation_mode not in ("binary", "recursive"):
+            return jsonify({"error": "segmentation_mode must be 'binary' or 'recursive'."}), 400
+
+        foreground_mode = str(data.get("foreground_mode", "auto")).strip().lower()
+        if foreground_mode not in ("auto", "legacy"):
+            return jsonify({"error": "foreground_mode must be 'auto' or 'legacy'."}), 400
+
+        if backend == Backend.GPU:
+            warm_gpu_backend()
+
+        t0 = time.perf_counter()
+        timer = StageTimer(enabled=True)
+
         # --- 1. Decode image ---
         pil_image = _decode_base64_image(data["image"])
         image_array = np.array(pil_image)
         image = _prepare_image(image_array, resolution, color_metric)
         height, width = image.shape[:2]
+        timer.record("prepare_image_ms")
 
         # --- 2. Build weight matrix ---
         weight_matrix, degree_vector = build_weight_matrix(
@@ -235,9 +453,11 @@ def segment():
             sigma_x=sigma_x,
             radius=radius,
             color_metric=color_metric,
+            backend=backend,
         )
         num_nodes = weight_matrix.shape[0]
         num_edges = weight_matrix.nnz
+        timer.record("graph_ms")
 
         # --- 3. Find Fiedler vector ---
         fiedler_vector = find_fiedler_vector(
@@ -246,15 +466,58 @@ def segment():
             weight_matrix.indptr,
             degree_vector,
         )
+        timer.record("eigensolver_ms")
 
         # --- 4a. Top-level partition — capture NCut score & threshold for diagnostics ---
         top_partition = partition_graph(
             weight_matrix,
             fiedler_vector,
             threshold_method="ncut",
+            backend=backend,
         )
+        timer.record("partition_ms")
         ncut_score = top_partition["ncut"]
         threshold  = top_partition["threshold"]
+
+        if segmentation_mode == "binary":
+            label_map = top_partition["mask"].astype(np.int32)
+            timer.record("segmentation_ms")
+
+            num_segments = int(np.max(label_map)) + 1
+            foreground_mask, background_label, foreground_strategy = _select_foreground_mask(
+                label_map,
+                height,
+                width,
+                segmentation_mode,
+                foreground_mode,
+                top_mask=top_partition["mask"],
+            )
+            segmentation_rgba = _labels_to_rgba_fast(label_map, height, width)
+
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            timings = timer.finish("total_ms")
+
+            return jsonify({
+                "width":             width,
+                "height":            height,
+                "nodes":             num_nodes,
+                "edges":             num_edges,
+                "backend":           backend.value,
+                "segmentation_mode": segmentation_mode,
+                "color_metric":      color_metric.value,
+                "foreground_mode":   foreground_mode,
+                "foreground_strategy": foreground_strategy,
+                "background_label":   background_label,
+                "num_segments":      num_segments,
+                "ncut_score":        round(ncut_score, 6),
+                "threshold":         round(threshold,  6),
+                "elapsed_ms":        round(elapsed_ms, 1),
+                "timings":           timings,
+                "heatmap_rgba":      _fiedler_to_heatmap_rgb_fast(fiedler_vector, height, width),
+                "segmentation_rgba": segmentation_rgba,
+                "nodes_rgba":        _image_to_rgba_fast(image),
+                "fg_rgba":           _foreground_rgba_fast(image, foreground_mask, height, width),
+            })
 
         # --- 4b. Recursive Partition ---
         label_map = recursive_partition(
@@ -264,26 +527,41 @@ def segment():
             ncut_threshold=0.06,   # paper recommended range 0.04–0.08
             threshold_method="ncut",
         )
+        timer.record("recursive_ms")
 
         num_segments = int(np.max(label_map)) + 1
-        segmentation_rgba = _labels_to_rgba(label_map, height, width)
+        foreground_mask, background_label, foreground_strategy = _select_foreground_mask(
+            label_map,
+            height,
+            width,
+            segmentation_mode,
+            foreground_mode,
+        )
+        segmentation_rgba = _labels_to_rgba_fast(label_map, height, width)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
+        timings = timer.finish("total_ms")
 
         return jsonify({
             "width":             width,
             "height":            height,
             "nodes":             num_nodes,
             "edges":             num_edges,
+            "backend":           backend.value,
+            "segmentation_mode": segmentation_mode,
             "color_metric":      color_metric.value,
+            "foreground_mode":   foreground_mode,
+            "foreground_strategy": foreground_strategy,
+            "background_label":   background_label,
             "num_segments":      num_segments,
             "ncut_score":        round(ncut_score, 6),
             "threshold":         round(threshold,  6),
             "elapsed_ms":        round(elapsed_ms, 1),
-            "heatmap_rgba":      _fiedler_to_heatmap_rgb(fiedler_vector, height, width),
+            "timings":           timings,
+            "heatmap_rgba":      _fiedler_to_heatmap_rgb_fast(fiedler_vector, height, width),
             "segmentation_rgba": segmentation_rgba,
-            "nodes_rgba":        _image_to_rgba(image),
-            "fg_rgba":           _foreground_rgba(image, label_map == 1, height, width),
+            "nodes_rgba":        _image_to_rgba_fast(image),
+            "fg_rgba":           _foreground_rgba_fast(image, foreground_mask, height, width),
         })
 
     except Exception as e:

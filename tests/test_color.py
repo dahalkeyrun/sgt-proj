@@ -11,6 +11,7 @@ from ncut.color import (
     ColorMetric,
     rgb_to_hsv_feature,
     hsv_feature_array,
+    build_feature_map,
     intensity_distance_sq,
     extract_pixel_feature,
 )
@@ -117,6 +118,40 @@ def test_hsv_feature_array_shape_type():
     features = hsv_feature_array(img)
     assert features.shape == (10, 10, 3)
     assert features.dtype == np.float64
+
+
+def test_build_feature_map_grayscale():
+    img = np.array([[0.0, 0.5], [1.0, 0.25]], dtype=np.float64)
+    features = build_feature_map(img, ColorMetric.GRAYSCALE)
+    assert features.shape == (2, 2, 1)
+    assert np.allclose(features[..., 0], img)
+
+
+def test_build_feature_map_rgb():
+    img = np.array([
+        [[255, 0, 0], [0, 255, 0]],
+        [[0, 0, 255], [128, 128, 128]],
+    ], dtype=np.uint8)
+    features = build_feature_map(img, ColorMetric.RGB)
+    assert features.shape == (2, 2, 3)
+    assert np.allclose(features[0, 0], np.array([1.0, 0.0, 0.0]))
+    assert np.allclose(features[1, 1], np.array([0.50196078, 0.50196078, 0.50196078]))
+
+
+def test_build_feature_map_hsv_matches_pixel():
+    img = np.array([[[255, 0, 0], [0, 255, 0]], [[0, 0, 255], [255, 255, 255]]], dtype=np.uint8)
+    features = build_feature_map(img, ColorMetric.HSV)
+    assert features.shape == (2, 2, 3)
+    assert np.allclose(features[0, 0], rgb_to_hsv_feature(255, 0, 0))
+    assert np.allclose(features[1, 0], rgb_to_hsv_feature(0, 0, 255))
+
+
+def test_build_feature_map_texture_returns_doog_features():
+    img = np.zeros((2, 2, 3), dtype=np.uint8)
+    doog = np.arange(12, dtype=np.float64).reshape((2, 2, 3))
+    features = build_feature_map(img, ColorMetric.TEXTURE, doog_features=doog)
+    assert features.shape == (2, 2, 3)
+    assert np.array_equal(features, doog)
 
 
 def test_color_metric_paper_faithful():

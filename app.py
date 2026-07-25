@@ -96,7 +96,13 @@ def _prepare_image(
     pil_img = PILImage.fromarray(image_array)
 
     # Resize to target resolution (preserve aspect ratio)
-    pil_img = pil_img.resize((resolution, resolution), PILImage.LANCZOS)
+    width, height = pil_img.size
+    largest_side = max(width, height)
+    if largest_side > resolution:
+        scale = resolution / largest_side
+        new_width = max(1, int(round(width * scale)))
+        new_height = max(1, int(round(height * scale)))
+        pil_img = pil_img.resize((new_width, new_height), PILImage.LANCZOS)
 
     img = np.array(pil_img, dtype=np.float64)
 
@@ -517,14 +523,15 @@ def segment():
                 "segmentation_rgba": segmentation_rgba,
                 "nodes_rgba":        _image_to_rgba_fast(image),
                 "fg_rgba":           _foreground_rgba_fast(image, foreground_mask, height, width),
+                "label_map":         label_map.tolist(),
             })
 
         # --- 4b. Recursive Partition ---
         label_map = recursive_partition(
             weight_matrix,
             max_depth=3,
-            min_segment_size=50,
-            ncut_threshold=0.06,   # paper recommended range 0.04–0.08
+            min_segment_size=30,
+            ncut_threshold=0.15,   # allows multi-level recursive decomposition
             threshold_method="ncut",
         )
         timer.record("recursive_ms")
@@ -562,6 +569,7 @@ def segment():
             "segmentation_rgba": segmentation_rgba,
             "nodes_rgba":        _image_to_rgba_fast(image),
             "fg_rgba":           _foreground_rgba_fast(image, foreground_mask, height, width),
+            "label_map":         label_map.tolist(),
         })
 
     except Exception as e:

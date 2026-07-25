@@ -154,6 +154,25 @@
                     </span>
                 </div>
 
+                <!-- INTERACTIVE REGION SELECTION PANEL -->
+                <div id="region-selector-panel" class="flex flex-col gap-2 hidden pt-2 border-t border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Select Regions to Keep</label>
+                        <span class="text-[10px] text-gray-500 font-mono" id="region-count-label">0 regions</span>
+                    </div>
+                    <p class="text-[11px] font-serif italic text-gray-500 leading-tight">
+                        Check regions to keep as foreground. Click segment canvas or pills below.
+                    </p>
+                    <div class="flex items-center gap-1.5 pt-1">
+                        <button id="btn-select-all" type="button" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10px] font-mono uppercase tracking-wider rounded border border-gray-300">All</button>
+                        <button id="btn-deselect-all" type="button" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10px] font-mono uppercase tracking-wider rounded border border-gray-300">None</button>
+                        <button id="btn-invert-sel" type="button" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10px] font-mono uppercase tracking-wider rounded border border-gray-300">Invert</button>
+                    </div>
+                    <div id="region-pills-container" class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 border border-gray-200 bg-[#fbfbfb] rounded mt-1">
+                        <!-- Dynamic segment pills inserted here -->
+                    </div>
+                </div>
+
                 <hr class="border-gray-200 mt-2" />
 
                 <!-- Execute / Stop Buttons -->
@@ -236,7 +255,7 @@
                                 <div class="absolute top-4 left-4 bg-white px-2 py-1 text-[10px] font-mono tracking-widest text-gray-600 shadow-sm z-10 border border-gray-100">
                                     NCUT
                                 </div>
-                                <canvas id="canvas-segments" class="w-full h-full object-contain hidden" style="image-rendering: pixelated;"></canvas>
+                                <canvas id="canvas-segments" class="w-full h-full object-contain hidden cursor-pointer" style="image-rendering: pixelated;"></canvas>
                                 <div id="pending-segments" class="w-full h-full flex items-center justify-center text-gray-400 font-mono text-xs tracking-widest bg-gray-100">
                                     PENDING
                                 </div>
@@ -247,7 +266,7 @@
                             <div class="mt-auto">
                                 <h3 class="text-xs font-bold font-sans tracking-wider text-gray-900 uppercase">Recursive NCut Segmentation</h3>
                                 <p class="text-xs font-serif italic text-gray-600 mt-1">
-                                    Recursive spectral partitioning producing multiple image segments.
+                                    Recursive spectral partitioning. <span class="text-gray-900 font-medium font-sans">✦ Click any region to toggle it!</span>
                                 </p>
                             </div>
                         </div>
@@ -414,32 +433,181 @@
             });
         }
 
-        // --- Client-side invert: re-renders foreground instantly ---
+        // Color palette for regions (matches backend _labels_to_rgba_fast)
+        const REGION_COLORS = [
+            '#e6194b', '#3cb44b', '#ffe119', '#0082c8',
+            '#f58231', '#911e42', '#46f0f0', '#f032e6',
+            '#d2f53c', '#fabebe', '#008080', '#e6beff',
+            '#aa6e28', '#fffac8', '#800000', '#aaffc3'
+        ];
+
+        let selectedRegionIds = new Set();
+        let currentLabelCounts = {};
+
         function storeResult(data) {
             const w = data.width, h = data.height;
-            const mask = [];
-            for (let i = 3; i < data.fg_rgba.length; i += 4) {
-                mask.push(data.fg_rgba[i] > 0 ? 1 : 0);
+            lastResult = {
+                width: w,
+                height: h,
+                nodesRgba: data.nodes_rgba,
+                labelMap: data.label_map || [],
+                numSegments: data.num_segments || 1,
+                fgRgba: data.fg_rgba
+            };
+
+            // Calculate pixel counts per region & pre-select initial foreground labels
+            currentLabelCounts = {};
+            selectedRegionIds.clear();
+
+            if (data.label_map && data.fg_rgba) {
+                for (let i = 0; i < data.label_map.length; i++) {
+                    const label = data.label_map[i];
+                    currentLabelCounts[label] = (currentLabelCounts[label] || 0) + 1;
+                    if (data.fg_rgba[i * 4 + 3] > 0) {
+                        selectedRegionIds.add(label);
+                    }
+                }
+            } else {
+                for (let s = 0; s < data.num_segments; s++) selectedRegionIds.add(s);
             }
-            lastResult = { width: w, height: h, nodesRgba: data.nodes_rgba, mask };
+
+            renderRegionSelectorPanel();
         }
+
+        function renderRegionSelectorPanel() {
+            const panel = document.getElementById('region-selector-panel');
+            const container = document.getElementById('region-pills-container');
+            const countLabel = document.getElementById('region-count-label');
+
+            if (!lastResult || !lastResult.labelMap || lastResult.labelMap.length === 0) {
+                panel.classList.add('hidden');
+                return;
+            }
+
+            panel.classList.remove('hidden');
+            const numSegs = lastResult.numSegments;
+            const totalPixels = lastResult.width * lastResult.height;
+            countLabel.innerText = `${selectedRegionIds.size} / ${numSegs} kept`;
+
+            container.innerHTML = '';
+
+            for (let segId = 0; segId < numSegs; segId++) {
+                const count = currentLabelCounts[segId] || 0;
+                const pct = ((count / totalPixels) * 100).toFixed(1);
+                const color = REGION_COLORS[segId % REGION_COLORS.length];
+                const isSelected = selectedRegionIds.has(segId);
+
+                const pill = document.createElement('label');
+                pill.className = `flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-mono cursor-pointer border transition-colors ${
+                    isSelected ? 'bg-white border-gray-400 shadow-sm text-gray-900 font-bold' : 'bg-gray-100 border-gray-200 text-gray-400 opacity-60'
+                }`;
+
+                pill.innerHTML = `
+                    <input type="checkbox" data-seg="${segId}" ${isSelected ? 'checked' : ''} class="accent-black" />
+                    <span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background-color: ${color};"></span>
+                    <span>Region ${segId}</span>
+                    <span class="text-[9px] text-gray-500 font-sans">(${pct}%)</span>
+                `;
+
+                pill.querySelector('input').addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedRegionIds.add(segId);
+                    } else {
+                        selectedRegionIds.delete(segId);
+                    }
+                    renderRegionSelectorPanel();
+                    renderForeground(document.getElementById('invert-mask').checked);
+                });
+
+                container.appendChild(pill);
+            }
+        }
+
+        // Quick action buttons
+        document.getElementById('btn-select-all').addEventListener('click', () => {
+            if (!lastResult) return;
+            for (let s = 0; s < lastResult.numSegments; s++) selectedRegionIds.add(s);
+            renderRegionSelectorPanel();
+            renderForeground(document.getElementById('invert-mask').checked);
+        });
+
+        document.getElementById('btn-deselect-all').addEventListener('click', () => {
+            if (!lastResult) return;
+            selectedRegionIds.clear();
+            renderRegionSelectorPanel();
+            renderForeground(document.getElementById('invert-mask').checked);
+        });
+
+        document.getElementById('btn-invert-sel').addEventListener('click', () => {
+            if (!lastResult) return;
+            for (let s = 0; s < lastResult.numSegments; s++) {
+                if (selectedRegionIds.has(s)) selectedRegionIds.delete(s);
+                else selectedRegionIds.add(s);
+            }
+            renderRegionSelectorPanel();
+            renderForeground(document.getElementById('invert-mask').checked);
+        });
 
         function renderForeground(invert) {
             if (!lastResult) return;
-            const { width, height, nodesRgba, mask } = lastResult;
+            const { width, height, nodesRgba, labelMap } = lastResult;
             const rgba = [];
-            for (let i = 0; i < mask.length; i++) {
+            const hasLabels = labelMap && labelMap.length === width * height;
+
+            for (let i = 0; i < width * height; i++) {
                 const pi = i * 4;
-                const isFg = invert ? 1 - mask[i] : mask[i];
+                let isFg = false;
+
+                if (hasLabels) {
+                    const segId = labelMap[i];
+                    isFg = selectedRegionIds.has(segId);
+                } else {
+                    isFg = lastResult.mask ? lastResult.mask[i] === 1 : true;
+                }
+
+                if (invert) isFg = !isFg;
+
                 rgba.push(
                     nodesRgba[pi], nodesRgba[pi + 1], nodesRgba[pi + 2],
                     isFg ? 255 : 0
                 );
             }
+
             renderRGBA('canvas-fg', 'pending-fg', rgba, width, height);
             document.getElementById('pending-fg').classList.add('hidden');
             document.getElementById('canvas-fg').classList.remove('hidden');
         }
+
+        // --- Canvas Click Selection ---
+        function setupCanvasClickSelection(canvasId) {
+            const canvas = document.getElementById(canvasId);
+            canvas.addEventListener('click', (e) => {
+                if (!lastResult || !lastResult.labelMap || lastResult.labelMap.length === 0) return;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = lastResult.width / rect.width;
+                const scaleY = lastResult.height / rect.height;
+
+                const cX = Math.floor((e.clientX - rect.left) * scaleX);
+                const cY = Math.floor((e.clientY - rect.top) * scaleY);
+
+                if (cX >= 0 && cX < lastResult.width && cY >= 0 && cY < lastResult.height) {
+                    const idx = cY * lastResult.width + cX;
+                    const clickedLabel = lastResult.labelMap[idx];
+                    if (clickedLabel !== undefined && clickedLabel >= 0) {
+                        if (selectedRegionIds.has(clickedLabel)) {
+                            selectedRegionIds.delete(clickedLabel);
+                        } else {
+                            selectedRegionIds.add(clickedLabel);
+                        }
+                        renderRegionSelectorPanel();
+                        renderForeground(document.getElementById('invert-mask').checked);
+                    }
+                }
+            });
+        }
+
+        setupCanvasClickSelection('canvas-segments');
+        setupCanvasClickSelection('canvas-nodes');
 
         document.getElementById('invert-mask').addEventListener('change', (e) => {
             renderForeground(e.target.checked);

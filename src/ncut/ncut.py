@@ -148,8 +148,10 @@ def find_fiedler_vector(
         dtype=np.float64
     )
 
+    d_safe = np.maximum(d, 1e-10)
+
     D = diags(
-        d,
+        d_safe,
         offsets=0,
         dtype=np.float64
     )

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Main entry point for image segmentation using Normalized Cuts.
 
@@ -35,10 +35,10 @@ from ncut.visualize import (
 
 def run_segmentation_pipeline(
     image_path,
-    sigma_i=1.0,
-    sigma_x=2.0,
-    radius=2,
-    threshold_method="median",
+    sigma_i=0.1,
+    sigma_x=4.0,
+    radius=5,
+    threshold_method="ncut",
     output_dir=None,
     backend="cpu",
 ):
@@ -175,10 +175,10 @@ def main():
         description="Segment image using Normalized Cuts"
     )
     parser.add_argument("image_path", help="Path to input image")
-    parser.add_argument("--sigma-i", type=float, default=1.0, help="Intensity distance parameter (default: 1.0)")
-    parser.add_argument("--sigma-x", type=float, default=2.0, help="Spatial distance parameter (default: 2.0)")
-    parser.add_argument("--radius", type=float, default=2, help="Neighborhood radius (default: 2)")
-    parser.add_argument("--threshold", choices=["median", "mean"], default="median", help="Threshold method (default: median)")
+    parser.add_argument("--sigma-i", type=float, default=0.1, help="Intensity distance parameter (default: 0.1)")
+    parser.add_argument("--sigma-x", type=float, default=4.0, help="Spatial distance parameter (default: 4.0)")
+    parser.add_argument("--radius", type=float, default=5, help="Neighborhood radius (default: 5)")
+    parser.add_argument("--threshold", choices=["ncut", "median", "mean"], default="ncut", help="Threshold method (default: ncut)")
     parser.add_argument("--output", type=str, default="outputs", help="Output directory (default: outputs/)")
     parser.add_argument("--backend", choices=["cpu", "gpu"], default="cpu", help="Execution backend: cpu or gpu")
     

@@ -74,7 +74,7 @@ def test_recursive_partition():
     plt.imshow(fiedler_image, cmap="coolwarm")
     plt.colorbar()
     plt.title("Root Fiedler Vector")
-    plt.show()
+    plt.close()
 
     # ==========================================================
     # RECURSIVE NCUT
@@ -143,7 +143,7 @@ def test_recursive_partition():
     plt.imshow(segmentation_image)
     plt.title("Final Segmentation Labels")
     plt.colorbar()
-    plt.show()
+    plt.close()
 
     print("\n=== Test Passed ===")
 

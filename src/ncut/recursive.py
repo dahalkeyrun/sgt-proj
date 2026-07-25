@@ -30,12 +30,13 @@ def compute_fiedler_vector_for_subgraph(
     )
 
 
-def is_stable_fiedler_vector(fiedler_vector, num_bins=20, flatness_threshold=0.06):
+def is_stable_fiedler_vector(fiedler_vector, num_bins=20, flatness_threshold=0.50):
     """
-    Paper Section 3.2 Step 4: Histogram flatness stability criterion.
-    If min_bin / max_bin < flatness_threshold (0.06), the eigenvector is
-    oscillatory or smooth — the proposed split is unreliable, skip it.
-    Returns True if the vector is stable (bimodal), False if oscillatory.
+    Paper Section 3.2 Step 4: Histogram stability criterion.
+    Checks the ratio of minimum bin count (valley) to maximum bin count (peak).
+    If min_count / max_count >= flatness_threshold (0.50), the eigenvector is
+    flat/oscillatory — the proposed split is unreliable, skip it.
+    Returns True if the vector is stable (bimodal/valley present), False if flat.
     """
     counts, _ = np.histogram(fiedler_vector, bins=num_bins)
     max_count = counts.max()

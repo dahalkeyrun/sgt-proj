@@ -54,3 +54,6 @@ system_info.md
 .png
 
 .vscode/
+
+pyproject.toml
+uv.lock

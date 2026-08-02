@@ -13,12 +13,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from ncut.utils import resize_image
 from ncut.graph import build_weight_matrix
-from ncut.ncut import find_fiedler_vector
-from ncut.partition import partition_graph
+from ncut.ncut import find_fiedler_vector, find_k_eigenvectors
+from ncut.partition import partition_graph, partition_kway
 from ncut.recursive import recursive_partition
 from ncut.color import ColorMetric, RECOMMENDED_SIGMA_I
 from ncut.backend import Backend, warm_gpu_backend
 from ncut.timing import StageTimer
+
 
 app = Flask(__name__)
 _warmed_segmentation_backends: set[Backend] = set()
@@ -46,6 +47,7 @@ def _warm_segmentation_path(backend: Backend) -> bool:
         degree_vector,
         max_iter=200,
         tol=1e-3,
+        backend=backend,
     )
     partition_graph(
         weight_matrix,
@@ -432,8 +434,8 @@ def segment():
     try:
         backend = Backend.from_string(data.get("backend", "cpu"))
         segmentation_mode = str(data.get("segmentation_mode", "binary")).strip().lower()
-        if segmentation_mode not in ("binary", "recursive"):
-            return jsonify({"error": "segmentation_mode must be 'binary' or 'recursive'."}), 400
+        if segmentation_mode not in ("binary", "recursive", "kway"):
+            return jsonify({"error": "segmentation_mode must be 'binary', 'recursive', or 'kway'."}), 400
 
         foreground_mode = str(data.get("foreground_mode", "auto")).strip().lower()
         if foreground_mode not in ("auto", "legacy"):
@@ -465,16 +467,80 @@ def segment():
         num_edges = weight_matrix.nnz
         timer.record("graph_ms")
 
-        # --- 3. Find Fiedler vector ---
+        # --- 3. K-Way Partitioning (GPU Accelerated or CPU) ---
+        if segmentation_mode == "kway":
+            k_clusters = int(data.get("k", 4))
+            k_clusters = max(2, min(k_clusters, 16))
+
+            eigenvalues, eigenvectors = find_k_eigenvectors(
+                weight_matrix.data,
+                weight_matrix.indices,
+                weight_matrix.indptr,
+                degree_vector,
+                k=k_clusters,
+                backend=backend,
+            )
+            timer.record("eigensolver_ms")
+
+            kway_result = partition_kway(
+                weight_matrix,
+                eigenvectors,
+                k=k_clusters,
+                backend=backend,
+            )
+            timer.record("partition_ms")
+
+            label_map = kway_result["labels"]
+            ncut_score = kway_result["ncut"]
+            fiedler_vec = eigenvectors[:, 1] if eigenvectors.shape[1] > 1 else eigenvectors[:, 0]
+
+            num_segments = int(np.max(label_map)) + 1
+            foreground_mask, background_label, foreground_strategy = _select_foreground_mask(
+                label_map,
+                height,
+                width,
+                segmentation_mode,
+                foreground_mode,
+            )
+            segmentation_rgba = _labels_to_rgba_fast(label_map, height, width)
+
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            timings = timer.finish("total_ms")
+
+            return jsonify({
+                "width":             width,
+                "height":            height,
+                "nodes":             num_nodes,
+                "edges":             num_edges,
+                "backend":           backend.value,
+                "segmentation_mode": segmentation_mode,
+                "color_metric":      color_metric.value,
+                "foreground_mode":   foreground_mode,
+                "foreground_strategy": foreground_strategy,
+                "background_label":   background_label,
+                "num_segments":      num_segments,
+                "ncut_score":        round(ncut_score, 6),
+                "threshold":         None,
+                "elapsed_ms":        round(elapsed_ms, 1),
+                "timings":           timings,
+                "heatmap_rgba":      _fiedler_to_heatmap_rgb_fast(fiedler_vec, height, width),
+                "segmentation_rgba": segmentation_rgba,
+                "nodes_rgba":        _image_to_rgba_fast(image),
+                "fg_rgba":           _foreground_rgba_fast(image, foreground_mask, height, width),
+                "label_map":         label_map.tolist(),
+            })
+
+        # --- 3. Find Fiedler vector (Binary / Recursive) ---
         fiedler_vector = find_fiedler_vector(
             weight_matrix.data,
             weight_matrix.indices,
             weight_matrix.indptr,
             degree_vector,
+            backend=backend,
         )
         timer.record("eigensolver_ms")
 
-        # --- 4a. Top-level partition — capture NCut score & threshold for diagnostics ---
+        # --- 4a. Top-level partition ---
         top_partition = partition_graph(
             weight_matrix,
             fiedler_vector,
@@ -531,8 +597,9 @@ def segment():
             weight_matrix,
             max_depth=3,
             min_segment_size=30,
-            ncut_threshold=0.15,   # allows multi-level recursive decomposition
+            ncut_threshold=0.15,
             threshold_method="ncut",
+            backend=backend,
         )
         timer.record("recursive_ms")
 

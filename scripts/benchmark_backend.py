@@ -43,6 +43,7 @@ def run_once(image, args, backend):
         weight_matrix.indices,
         weight_matrix.indptr,
         degree_vector,
+        backend=backend,
     )
     eigensolver_ms = (time.perf_counter() - start) * 1000.0
 

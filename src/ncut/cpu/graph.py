@@ -1,7 +1,7 @@
-import math
 import numpy as np
 from scipy.sparse import csr_matrix
-from ncut.color import ColorMetric, build_feature_map, intensity_distance_sq
+
+from ncut.color import ColorMetric, build_feature_map
 
 
 def validate_graph_parameters(image, sigma_i, sigma_x, radius):
@@ -15,8 +15,17 @@ def validate_graph_parameters(image, sigma_i, sigma_x, radius):
         raise ValueError("radius must be positive.")
 
 
-def calculate_spatial_distance_sq(x1, y1, x2, y2):
-    return (x1 - x2) ** 2 + (y1 - y2) ** 2
+def _build_offsets(radius: int):
+    offsets = []
+    radius_sq = radius * radius
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dy == 0 and dx == 0:
+                continue
+            if dx * dx + dy * dy >= radius_sq:
+                continue
+            offsets.append((dy, dx))
+    return offsets
 
 
 def build_graph_structures(
@@ -36,54 +45,78 @@ def build_graph_structures(
         backend="cpu",
     )
 
-    height, width = image.shape[:2]
+    height, width = feature_map.shape[:2]
     num_pixels = height * width
-
     sigma_i_sq = sigma_i ** 2
     sigma_x_sq = sigma_x ** 2
-    radius_sq = radius ** 2
 
-    values = []
-    col_indices = []
-    row_pointers = [0]
-    degree_vector = np.zeros(num_pixels, dtype=np.float64)
+    offsets = _build_offsets(radius)
+    row_blocks = []
+    col_blocks = []
+    value_blocks = []
 
-    for y1 in range(height):
-        for x1 in range(width):
-            i = y1 * width + x1
-            y_min = max(0, y1 - radius)
-            y_max = min(height, y1 + radius + 1)
-            x_min = max(0, x1 - radius)
-            x_max = min(width, x1 + radius + 1)
-            running_degree_sum = 0.0
+    for dy, dx in offsets:
+        y_start = max(0, -dy)
+        y_end = min(height, height - dy)
+        x_start = max(0, -dx)
+        x_end = min(width, width - dx)
 
-            for y2 in range(y_min, y_max):
-                for x2 in range(x_min, x_max):
-                    j = y2 * width + x2
-                    if i == j:
-                        continue
+        if y_start >= y_end or x_start >= x_end:
+            continue
 
-                    dist_x_sq = calculate_spatial_distance_sq(x1, y1, x2, y2)
-                    if dist_x_sq >= radius_sq:
-                        continue
+        rows = np.arange(y_start, y_end, dtype=np.int32) * width
+        cols = np.arange(x_start, x_end, dtype=np.int32)
+        i_flat = (rows[:, None] + cols[None, :]).ravel()
+        j_flat = i_flat + dy * width + dx
 
-                    feature_i = feature_map[y1, x1]
-                    feature_j = feature_map[y2, x2]
-                    dist_i_sq = intensity_distance_sq(feature_i, feature_j, color_metric)
+        diff = (
+            feature_map[y_start:y_end, x_start:x_end]
+            - feature_map[y_start + dy:y_end + dy, x_start + dx:x_end + dx]
+        )
+        dist_i_sq = np.einsum("ijk,ijk->ij", diff, diff).ravel()
 
-                    weight = math.exp(-dist_i_sq / sigma_i_sq) * math.exp(-dist_x_sq / sigma_x_sq)
-                    values.append(weight)
-                    col_indices.append(j)
-                    running_degree_sum += weight
+        weight = np.exp(
+            -(dist_i_sq / sigma_i_sq
+              + (dx * dx + dy * dy) / sigma_x_sq)
+        )
+        row_blocks.append(i_flat)
+        col_blocks.append(j_flat)
+        value_blocks.append(weight)
 
-            degree_vector[i] = running_degree_sum
-            row_pointers.append(len(values))
+    if len(row_blocks) == 0:
+        return (
+            np.array([], dtype=np.float64),
+            np.array([], dtype=np.int32),
+            np.array([0] * (num_pixels + 1), dtype=np.int32),
+            np.zeros(num_pixels, dtype=np.float64),
+        )
+
+    row_indices = np.concatenate(row_blocks)
+    col_indices = np.concatenate(col_blocks)
+    values = np.concatenate(value_blocks)
+
+    degree_vector = np.bincount(
+        row_indices,
+        weights=values,
+        minlength=num_pixels,
+    )
+
+    # Sort into canonical row-major CSR order.
+    order = np.lexsort((col_indices, row_indices))
+    row_indices = row_indices[order]
+    col_indices = col_indices[order]
+    values = values[order]
+
+    row_counts = np.bincount(row_indices, minlength=num_pixels)
+    row_pointers = np.empty(num_pixels + 1, dtype=np.int32)
+    row_pointers[0] = 0
+    row_pointers[1:] = np.cumsum(row_counts, dtype=np.int32)
 
     return (
-        np.array(values, dtype=np.float64),
-        np.array(col_indices, dtype=np.int32),
-        np.array(row_pointers, dtype=np.int32),
-        degree_vector,
+        values,
+        col_indices,
+        row_pointers,
+        degree_vector.astype(np.float64),
     )
 
 

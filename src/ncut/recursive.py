@@ -17,6 +17,7 @@ def compute_fiedler_vector_for_subgraph(
     subgraph_weight_matrix,
     max_iter=5000,
     tol=1e-5,
+    backend="cpu",
 ):
 
     degree_vector = compute_degree_vector_for_subgraph(subgraph_weight_matrix)
@@ -27,6 +28,7 @@ def compute_fiedler_vector_for_subgraph(
         degree_vector,
         max_iter=max_iter,
         tol=tol,
+        backend=backend,
     )
 
 
@@ -51,6 +53,7 @@ def compute_partition_for_subgraph(
     threshold_method="ncut",
     max_iter=5000,
     tol=1e-5,
+    backend="cpu",
 ):
     """
     Compute a single NCut partition for a subgraph.
@@ -61,6 +64,7 @@ def compute_partition_for_subgraph(
         subgraph_weight_matrix,
         max_iter=max_iter,
         tol=tol,
+        backend=backend,
     )
 
     print(
@@ -105,7 +109,8 @@ def recursive_split(
     ncut_threshold,
     threshold_method="ncut",
     max_iter=5000,
-    tol=1e-5):
+    tol=1e-5,
+    backend="cpu"):
     
     if current_depth >= max_depth:
         segment_list.append(current_node_indices)
@@ -128,6 +133,7 @@ def recursive_split(
         threshold_method,
         max_iter=max_iter,
         tol=tol,
+        backend=backend,
     )
 
     # Stability criterion failed — treat whole segment as a leaf.
@@ -176,6 +182,7 @@ def recursive_split(
         threshold_method,
         max_iter=max_iter,
         tol=tol,
+        backend=backend,
     )
 
     recursive_split(
@@ -189,6 +196,7 @@ def recursive_split(
         threshold_method,
         max_iter=max_iter,
         tol=tol,
+        backend=backend,
     )
 
 
@@ -200,6 +208,7 @@ def recursive_partition(
     threshold_method="ncut",
     max_iter=5000,
     tol=1e-5,
+    backend="cpu",
 ):
     total_nodes = weight_matrix.shape[0]
 
@@ -216,7 +225,9 @@ def recursive_partition(
         ncut_threshold = ncut_threshold,
         threshold_method = threshold_method,
         max_iter=max_iter,
-        tol=tol,)
+        tol=tol,
+        backend=backend,
+    )
 
     label_map = build_label_map(total_nodes, segment_list)
 

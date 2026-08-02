@@ -128,9 +128,19 @@
                 <div class="flex flex-col gap-2">
                     <label for="segmentation-mode" class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">Segmentation Mode</label>
                     <select id="segmentation-mode" class="w-full border border-gray-200 bg-[#fbfbfb] p-2 text-[13px] font-serif text-gray-900 appearance-none focus:outline-none">
-                        <option value="binary" selected>Fast Foreground</option>
+                        <option value="binary" selected>Fast Foreground (2-Way)</option>
                         <option value="recursive">Recursive Multi-Segment</option>
+                        <option value="kway">K-Way Partition (GPU Accelerated)</option>
                     </select>
+                </div>
+
+                <!-- K CLUSTERS (FOR K-WAY) -->
+                <div class="flex flex-col gap-2" id="k-clusters-container">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[11px] font-bold tracking-widest text-gray-900 uppercase">K Clusters (K-Way)</label>
+                        <span class="text-[11px] text-gray-500" id="k-clusters-val">4</span>
+                    </div>
+                    <input type="range" id="k-clusters" min="2" max="16" value="4" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" oninput="document.getElementById('k-clusters-val').innerText = this.value;" />
                 </div>
 
                 <!-- FOREGROUND MODE -->
@@ -697,6 +707,7 @@
             const backend    = document.querySelector('input[name="backend"]:checked').value;
             const segmentationMode = document.getElementById('segmentation-mode').value;
             const foregroundMode = document.getElementById('foreground-mode').value;
+            const kClusters = parseInt(document.getElementById('k-clusters').value);
 
             statusText.innerText = `Warming ${backend.toUpperCase()}...`;
             statusText.className = 'text-[#121212] font-bold';
@@ -722,6 +733,7 @@
                         backend:      backend,
                         segmentation_mode: segmentationMode,
                         foreground_mode: foregroundMode,
+                        k:            kClusters,
                     }),
                     signal: abortController.signal,
                 });

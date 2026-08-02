@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.sparse import issparse
 
-from ncut.backend import Backend, to_numpy
+from ncut.backend import Backend, is_gpu_available, to_numpy
 
 
 def validate_partition_inputs(W, fiedler_vector):
@@ -207,55 +207,6 @@ def find_threshold(
     if method == "ncut":
         return find_exact_ncut_threshold(W, fiedler_vector)
 
-        y_min = float(fiedler_vector.min())
-        y_max = float(fiedler_vector.max())
-
-        # Paper Section 3.1 Step 3: sweep l evenly spaced candidate thresholds
-        # between min(y₁) and max(y₁), pick the one that minimises NCut.
-        num_candidates = max(20, min(200, len(fiedler_vector) // 20))
-
-        # Evenly spaced in VALUE space (not index space); exclude endpoints to
-        # avoid degenerate partitions where one side has 0 nodes.
-        candidate_thresholds = np.linspace(y_min, y_max, num_candidates + 2)[1:-1]
-
-        best_threshold = None
-        best_ncut = np.inf
-
-        for threshold in candidate_thresholds:
-
-            mask = compute_binary_partition(
-                fiedler_vector,
-                threshold
-            )
-
-            partition_size = mask.sum()
-
-            if (
-                partition_size == 0
-                or
-                partition_size == len(mask)
-            ):
-                continue
-
-            ncut_value = compute_ncut(
-                W,
-                mask
-            )
-
-            if ncut_value < best_ncut:
-
-                best_ncut = ncut_value
-                best_threshold = threshold
-
-        if best_threshold is None:
-            raise ValueError(
-                "Failed to find a valid NCut threshold."
-            )
-
-        return float(
-            best_threshold
-        )
-
     raise ValueError(
         f"Unknown threshold method: {method}"
     )
@@ -273,11 +224,6 @@ def partition_graph(
     """
     backend = Backend.from_string(backend)
     fiedler_vector = np.asarray(to_numpy(fiedler_vector), dtype=np.float64)
-
-    if backend == Backend.GPU:
-        # The current implementation keeps partitioning on the CPU side.
-        # This still accepts a GPU-selected backend and converts inputs to NumPy.
-        pass
 
     validate_partition_inputs(
         W,
@@ -305,3 +251,127 @@ def partition_graph(
         "threshold": threshold,
         "ncut": ncut_value,
     }
+
+
+def kway_kmeans(
+    eigenvectors: np.ndarray,
+    k: int,
+    backend: Backend | str = Backend.CPU,
+    max_iter: int = 100,
+    seed: int = 42,
+) -> np.ndarray:
+    """
+    Perform row-normalized k-means clustering on top k eigenvectors.
+    Supports GPU-accelerated k-means via CuPy.
+    """
+    backend = Backend.from_string(backend)
+    num_pixels, num_cols = eigenvectors.shape
+    k = min(k, num_pixels)
+
+    if k <= 1:
+        return np.zeros(num_pixels, dtype=np.int32)
+
+    # Row normalization to unit sphere (Shi-Malik / Ng-Jordan-Weiss)
+    norms = np.linalg.norm(eigenvectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1e-10
+    normalized_vecs = eigenvectors / norms
+
+    if backend == Backend.GPU and is_gpu_available():
+        try:
+            import cupy as cp
+
+            X_gpu = cp.asarray(normalized_vecs, dtype=cp.float32)
+            cp.random.seed(seed)
+            initial_idx = cp.random.choice(num_pixels, size=k, replace=False)
+            centroids = X_gpu[initial_idx]
+
+            labels_gpu = cp.zeros(num_pixels, dtype=cp.int32)
+            for _ in range(max_iter):
+                similarities = cp.dot(X_gpu, centroids.T)
+                new_labels = cp.argmax(similarities, axis=1).astype(cp.int32)
+
+                if cp.array_equal(new_labels, labels_gpu):
+                    break
+                labels_gpu = new_labels
+
+                new_centroids = cp.zeros_like(centroids)
+                for c in range(k):
+                    mask = (labels_gpu == c)
+                    if cp.any(mask):
+                        cluster_mean = cp.mean(X_gpu[mask], axis=0)
+                        mean_norm = cp.linalg.norm(cluster_mean)
+                        new_centroids[c] = cluster_mean / max(float(mean_norm), 1e-10)
+                    else:
+                        new_centroids[c] = X_gpu[cp.random.randint(0, num_pixels)]
+                centroids = new_centroids
+
+            return to_numpy(labels_gpu).astype(np.int32)
+        except Exception as err:
+            print(f"[Warning] GPU k-means failed ({err}); falling back to CPU.")
+
+    # CPU k-means using NumPy dot product cosine similarity
+    rng = np.random.RandomState(seed)
+    initial_idx = rng.choice(num_pixels, size=k, replace=False)
+    centroids = normalized_vecs[initial_idx].astype(np.float32)
+    X_cpu = normalized_vecs.astype(np.float32)
+    labels = np.zeros(num_pixels, dtype=np.int32)
+
+    for _ in range(max_iter):
+        similarities = np.dot(X_cpu, centroids.T)
+        new_labels = np.argmax(similarities, axis=1).astype(np.int32)
+
+        if np.array_equal(new_labels, labels):
+            break
+        labels = new_labels
+
+        for c in range(k):
+            mask = (labels == c)
+            if np.any(mask):
+                c_mean = np.mean(X_cpu[mask], axis=0)
+                c_norm = np.linalg.norm(c_mean)
+                centroids[c] = c_mean / max(float(c_norm), 1e-10)
+            else:
+                centroids[c] = X_cpu[rng.randint(0, num_pixels)]
+
+    return labels
+
+
+def compute_kway_ncut(W, labels: np.ndarray, k: int) -> float:
+    """
+    Compute multi-class NCut cost across all k clusters:
+    NCut_k = sum_{c=0}^{k-1} cut(A_c, V \ A_c) / assoc(A_c, V)
+    """
+    degree_vector = np.asarray(W.sum(axis=1)).ravel().astype(np.float64)
+    total_ncut = 0.0
+
+    for c in range(k):
+        mask = (labels == c)
+        assoc_c = degree_vector[mask].sum()
+        if assoc_c == 0:
+            continue
+        cut_c = compute_cut(W, mask)
+        total_ncut += cut_c / assoc_c
+
+    return float(total_ncut)
+
+
+def partition_kway(
+    W,
+    eigenvectors: np.ndarray,
+    k: int = 4,
+    backend: Backend | str = Backend.CPU,
+) -> dict:
+    """
+    Perform k-way spectral partitioning using row-normalized k-means on top k eigenvectors.
+    """
+    backend = Backend.from_string(backend)
+    labels = kway_kmeans(eigenvectors, k=k, backend=backend)
+    ncut_value = compute_kway_ncut(W, labels, k)
+
+    return {
+        "labels": labels,
+        "ncut": ncut_value,
+        "k": k,
+        "threshold": None,
+    }
+
